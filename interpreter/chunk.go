@@ -1,4 +1,4 @@
-package vm
+package interpreter
 
 type Chunk struct {
 	code      []uint8

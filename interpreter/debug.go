@@ -1,6 +1,8 @@
-package vm
+package interpreter
 
 import "fmt"
+
+const DebugTraceExecution = true
 
 func DisassembleChunk(chunk *Chunk, name string) {
 	fmt.Printf("== %s ==\n", name)
@@ -18,10 +20,20 @@ func disassembleInstruction(chunk *Chunk, offset int) int {
 	}
 	instruction := chunk.code[offset]
 	switch instruction {
-	case OP_CONSTANT:
-		return constantInstruction("OP_CONSTANT", chunk, offset)
-	case OP_RETURN:
-		return simpleInstruction("OP_RETURN", offset)
+	case OpConstant:
+		return constantInstruction("OpConstant", chunk, offset)
+	case OpAdd:
+		return simpleInstruction("OpAdd", offset)
+	case OpSubtract:
+		return simpleInstruction("OpSubtract", offset)
+	case OpMultiply:
+		return simpleInstruction("OpMultiply", offset)
+	case OpDivide:
+		return simpleInstruction("OpDivide", offset)
+	case OpNegate:
+		return simpleInstruction("OpNegate", offset)
+	case OpReturn:
+		return simpleInstruction("OpReturn", offset)
 	default:
 		fmt.Printf("Unknown opcode %d\n", instruction)
 		return offset + 1

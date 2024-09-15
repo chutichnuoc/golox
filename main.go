@@ -1,15 +1,35 @@
 package main
 
 import (
-	"golox/vm"
+	lox "golox/interpreter"
 )
 
 func main() {
-	chunk := vm.NewChunk()
+	//vm := lox.NewVM()
+	chunk := lox.NewChunk()
+
 	constant := chunk.AddConstant(1.2)
-	chunk.Write(vm.OP_CONSTANT, 123)
+	chunk.Write(lox.OpConstant, 123)
 	chunk.Write(constant, 123)
-	chunk.Write(vm.OP_RETURN, 123)
-	vm.DisassembleChunk(chunk, "test chunk")
+
+	constant = chunk.AddConstant(3.4)
+	chunk.Write(lox.OpConstant, 123)
+	chunk.Write(constant, 123)
+
+	chunk.Write(lox.OpAdd, 123)
+
+	constant = chunk.AddConstant(5.6)
+	chunk.Write(lox.OpConstant, 123)
+	chunk.Write(constant, 123)
+
+	chunk.Write(lox.OpDivide, 123)
+
+	chunk.Write(lox.OpNegate, 123)
+	chunk.Write(lox.OpReturn, 123)
+
+	lox.DisassembleChunk(chunk, "test chunk")
+
+	//vm.Interpret()
+	//vm.Free()
 	chunk.Free()
 }

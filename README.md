@@ -1,1 +1,1 @@
-Lox VM written in Go. Based on https://www.craftinginterpreters.com
+Lox interpreter written in Go. Based on https://www.craftinginterpreters.com
