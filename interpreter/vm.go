@@ -9,7 +9,7 @@ type VM struct {
 	stackTop int
 }
 
-func NewVM() *VM {
+func InitVM() *VM {
 	vm := &VM{}
 	vm.stackTop = 0
 	return vm
@@ -38,7 +38,7 @@ func (vm *VM) run() int {
 				printValue(vm.stack[slot])
 				fmt.Print(" ]")
 			}
-			fmt.Printf("\n")
+			fmt.Println()
 			disassembleInstruction(&vm.chunk, int(vm.ip))
 		}
 		instruction := vm.chunk.code[vm.ip]
@@ -74,14 +74,13 @@ func (vm *VM) run() int {
 			break
 		case OpReturn:
 			printValue(vm.pop())
-			fmt.Printf("\n")
+			fmt.Println()
 			return InterpretOk
 		}
 	}
 }
 
-func (vm *VM) Interpret(chunk Chunk) int {
-	vm.chunk = chunk
-	vm.ip = 0
-	return vm.run()
+func (vm *VM) Interpret(source string) int {
+	compile(source)
+	return InterpretOk
 }

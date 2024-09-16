@@ -1,35 +1,54 @@
 package main
 
 import (
+	"fmt"
+	"os"
+
 	lox "golox/interpreter"
 )
 
 func main() {
-	//vm := lox.NewVM()
-	chunk := lox.NewChunk()
-
-	constant := chunk.AddConstant(1.2)
-	chunk.Write(lox.OpConstant, 123)
-	chunk.Write(constant, 123)
-
-	constant = chunk.AddConstant(3.4)
-	chunk.Write(lox.OpConstant, 123)
-	chunk.Write(constant, 123)
-
-	chunk.Write(lox.OpAdd, 123)
-
-	constant = chunk.AddConstant(5.6)
-	chunk.Write(lox.OpConstant, 123)
-	chunk.Write(constant, 123)
-
-	chunk.Write(lox.OpDivide, 123)
-
-	chunk.Write(lox.OpNegate, 123)
-	chunk.Write(lox.OpReturn, 123)
-
-	lox.DisassembleChunk(chunk, "test chunk")
+	vm := lox.InitVM()
+	runFile(vm, "C:\\Users\\hungle\\code\\test.lox")
+	//if len(os.Args) == 1 {
+	//	repl(vm)
+	//} else if len(os.Args) == 2 {
+	//	runFile(vm, os.Args[1])
+	//} else {
+	//	fmt.Println("Usage: lox [path]")
+	//	os.Exit(64)
+	//}
 
 	//vm.Interpret()
-	//vm.Free()
-	chunk.Free()
+	vm.Free()
+}
+
+func repl(vm *lox.VM) {
+	var line [1024]byte
+	for {
+		fmt.Print("> ")
+
+		n, err := os.Stdin.Read(line[:])
+		if err != nil {
+			fmt.Println()
+			break
+		}
+
+		vm.Interpret(string(line[:n]))
+	}
+}
+
+func runFile(vm *lox.VM, path string) {
+	source, err := os.ReadFile(path)
+	if err != nil {
+		fmt.Printf("Could not open file %s: %s\n", path, err)
+		os.Exit(74)
+	}
+	result := vm.Interpret(string(source))
+	if result == lox.InterpretCompileError {
+		os.Exit(65)
+	}
+	if result == lox.InterpretRuntimeError {
+		os.Exit(70)
+	}
 }

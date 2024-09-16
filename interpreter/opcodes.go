@@ -1,7 +1,7 @@
 package interpreter
 
 const (
-	OpConstant = 1 << iota
+	OpConstant = iota
 	OpAdd
 	OpSubtract
 	OpMultiply

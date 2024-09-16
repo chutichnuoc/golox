@@ -44,7 +44,7 @@ func constantInstruction(name string, chunk *Chunk, offset int) int {
 	constant := chunk.code[offset+1]
 	fmt.Printf("%-16s %4d '", name, constant)
 	printValue(chunk.constants.values[constant])
-	fmt.Printf("'\n")
+	fmt.Println()
 	return offset + 2
 }
 

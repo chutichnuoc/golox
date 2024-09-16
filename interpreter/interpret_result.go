@@ -1,7 +1,7 @@
 package interpreter
 
 const (
-	InterpretOk = 1 << iota
+	InterpretOk = iota
 	InterpretCompileError
 	InterpretRuntimeError
 )
