@@ -23,6 +23,18 @@ func disassembleInstruction(chunk *Chunk, offset int) int {
 	switch instruction {
 	case OpConstant:
 		return constantInstruction("OpConstant", chunk, offset)
+	case OpNil:
+		return simpleInstruction("OpNil", offset)
+	case OpTrue:
+		return simpleInstruction("OpTrue", offset)
+	case OpFalse:
+		return simpleInstruction("OpFalse", offset)
+	case OpEqual:
+		return simpleInstruction("OpEqual", offset)
+	case OpGreater:
+		return simpleInstruction("OpGreater", offset)
+	case OpLess:
+		return simpleInstruction("OpLess", offset)
 	case OpAdd:
 		return simpleInstruction("OpAdd", offset)
 	case OpSubtract:
@@ -31,6 +43,8 @@ func disassembleInstruction(chunk *Chunk, offset int) int {
 		return simpleInstruction("OpMultiply", offset)
 	case OpDivide:
 		return simpleInstruction("OpDivide", offset)
+	case OpNot:
+		return simpleInstruction("OpNot", offset)
 	case OpNegate:
 		return simpleInstruction("OpNegate", offset)
 	case OpReturn:

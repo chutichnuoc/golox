@@ -47,31 +47,31 @@ func compile(source string, chunk *Chunk) bool {
 		TokenSemicolon:    {nil, nil, PrecNone},
 		TokenSlash:        {nil, binary, PrecFactor},
 		TokenStar:         {nil, binary, PrecFactor},
-		TokenBang:         {nil, nil, PrecNone},
-		TokenBangEqual:    {nil, nil, PrecNone},
+		TokenBang:         {unary, nil, PrecNone},
+		TokenBangEqual:    {nil, binary, PrecEquality},
 		TokenEqual:        {nil, nil, PrecNone},
-		TokenEqualEqual:   {nil, nil, PrecNone},
-		TokenGreater:      {nil, nil, PrecNone},
-		TokenGreaterEqual: {nil, nil, PrecNone},
-		TokenLess:         {nil, nil, PrecNone},
-		TokenLessEqual:    {nil, nil, PrecNone},
+		TokenEqualEqual:   {nil, binary, PrecEquality},
+		TokenGreater:      {nil, binary, PrecComparison},
+		TokenGreaterEqual: {nil, binary, PrecComparison},
+		TokenLess:         {nil, binary, PrecComparison},
+		TokenLessEqual:    {nil, binary, PrecComparison},
 		TokenIdentifier:   {nil, nil, PrecNone},
 		TokenString:       {nil, nil, PrecNone},
 		TokenNumber:       {number, nil, PrecNone},
 		TokenAnd:          {nil, nil, PrecNone},
 		TokenClass:        {nil, nil, PrecNone},
 		TokenElse:         {nil, nil, PrecNone},
-		TokenFalse:        {nil, nil, PrecNone},
+		TokenFalse:        {literal, nil, PrecNone},
 		TokenFor:          {nil, nil, PrecNone},
 		TokenFun:          {nil, nil, PrecNone},
 		TokenIf:           {nil, nil, PrecNone},
-		TokenNil:          {nil, nil, PrecNone},
+		TokenNil:          {literal, nil, PrecNone},
 		TokenOr:           {nil, nil, PrecNone},
 		TokenPrint:        {nil, nil, PrecNone},
 		TokenReturn:       {nil, nil, PrecNone},
 		TokenSuper:        {nil, nil, PrecNone},
 		TokenThis:         {nil, nil, PrecNone},
-		TokenTrue:         {nil, nil, PrecNone},
+		TokenTrue:         {literal, nil, PrecNone},
 		TokenVar:          {nil, nil, PrecNone},
 		TokenWhile:        {nil, nil, PrecNone},
 		TokenError:        {nil, nil, PrecNone},
@@ -152,6 +152,9 @@ func unary() {
 
 	// Emit the operator instruction.
 	switch operatorType {
+	case TokenBang:
+		parser.emitByte(OpNot)
+		break
 	case TokenMinus:
 		parser.emitByte(OpNegate)
 		break
@@ -166,6 +169,24 @@ func binary() {
 	parsePrecedence(rule.precedence + 1)
 
 	switch operatorType {
+	case TokenBangEqual:
+		parser.emitBytes(OpEqual, OpNot)
+		break
+	case TokenEqualEqual:
+		parser.emitByte(OpEqual)
+		break
+	case TokenGreater:
+		parser.emitByte(OpGreater)
+		break
+	case TokenLess:
+		parser.emitByte(OpLess)
+		break
+	case TokenLessEqual:
+		parser.emitBytes(OpGreater, OpNot)
+		break
+	case TokenGreaterEqual:
+		parser.emitBytes(OpLess, OpNot)
+		break
 	case TokenPlus:
 		parser.emitByte(OpAdd)
 		break
@@ -183,9 +204,25 @@ func binary() {
 	}
 }
 
+func literal() {
+	switch parser.previous.tokenType {
+	case TokenFalse:
+		parser.emitByte(OpFalse)
+		break
+	case TokenNil:
+		parser.emitByte(OpNil)
+		break
+	case TokenTrue:
+		parser.emitByte(OpTrue)
+		break
+	default:
+		return // Unreachable.
+	}
+}
+
 func number() {
 	value, _ := strconv.ParseFloat(parser.previous.lexeme, 64)
-	parser.emitConstant(Value(value))
+	parser.emitConstant(numberVal(value))
 }
 
 func makeConstant(value Value) uint8 {

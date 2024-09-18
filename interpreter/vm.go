@@ -1,6 +1,8 @@
 package interpreter
 
-import "fmt"
+import (
+	"fmt"
+)
 
 type VM struct {
 	chunk    Chunk
@@ -11,8 +13,12 @@ type VM struct {
 
 func InitVM() *VM {
 	vm := &VM{}
-	vm.stackTop = 0
+	vm.resetStack()
 	return vm
+}
+
+func (vm *VM) resetStack() {
+	vm.stackTop = 0
 }
 
 func (vm *VM) Free() {
@@ -27,6 +33,14 @@ func (vm *VM) push(value Value) {
 func (vm *VM) pop() Value {
 	vm.stackTop--
 	return vm.stack[vm.stackTop]
+}
+
+func (vm *VM) peek(distance int) Value {
+	return vm.stack[vm.stackTop-distance-1]
+}
+
+func isFalsey(value Value) bool {
+	return isNil(value) || (isBool(value) && !asBool(value))
 }
 
 func (vm *VM) run() InterpretResult {
@@ -50,28 +64,83 @@ func (vm *VM) run() InterpretResult {
 			vm.ip++
 			vm.push(constant)
 			break
-		case OpAdd:
+		case OpNil:
+			vm.push(nilVal())
+			break
+		case OpTrue:
+			vm.push(boolVal(true))
+			break
+		case OpFalse:
+			vm.push(boolVal(false))
+			break
+		case OpEqual:
 			b := vm.pop()
 			a := vm.pop()
-			vm.push(a + b)
+			vm.push(boolVal(valueEqual(a, b)))
+			break
+		case OpGreater:
+			if !isNumber(vm.peek(0)) || !isNumber(vm.peek(1)) {
+				vm.runtimeError("Operands must be numbers.")
+				return InterpretRuntimeError
+			}
+			b := asNumber(vm.pop())
+			a := asNumber(vm.pop())
+			vm.push(boolVal(a > b))
+			break
+		case OpLess:
+			if !isNumber(vm.peek(0)) || !isNumber(vm.peek(1)) {
+				vm.runtimeError("Operands must be numbers.")
+				return InterpretRuntimeError
+			}
+			b := asNumber(vm.pop())
+			a := asNumber(vm.pop())
+			vm.push(boolVal(a < b))
+			break
+		case OpAdd:
+			if !isNumber(vm.peek(0)) || !isNumber(vm.peek(1)) {
+				vm.runtimeError("Operands must be numbers.")
+				return InterpretRuntimeError
+			}
+			b := asNumber(vm.pop())
+			a := asNumber(vm.pop())
+			vm.push(numberVal(a + b))
 			break
 		case OpSubtract:
-			b := vm.pop()
-			a := vm.pop()
-			vm.push(a - b)
+			if !isNumber(vm.peek(0)) || !isNumber(vm.peek(1)) {
+				vm.runtimeError("Operands must be numbers.")
+				return InterpretRuntimeError
+			}
+			b := asNumber(vm.pop())
+			a := asNumber(vm.pop())
+			vm.push(numberVal(a - b))
 			break
 		case OpMultiply:
-			b := vm.pop()
-			a := vm.pop()
-			vm.push(a * b)
+			if !isNumber(vm.peek(0)) || !isNumber(vm.peek(1)) {
+				vm.runtimeError("Operands must be numbers.")
+				return InterpretRuntimeError
+			}
+			b := asNumber(vm.pop())
+			a := asNumber(vm.pop())
+			vm.push(numberVal(a * b))
 			break
 		case OpDivide:
-			b := vm.pop()
-			a := vm.pop()
-			vm.push(a / b)
+			if !isNumber(vm.peek(0)) || !isNumber(vm.peek(1)) {
+				vm.runtimeError("Operands must be numbers.")
+				return InterpretRuntimeError
+			}
+			b := asNumber(vm.pop())
+			a := asNumber(vm.pop())
+			vm.push(numberVal(a / b))
+			break
+		case OpNot:
+			vm.push(boolVal(isFalsey(vm.pop())))
 			break
 		case OpNegate:
-			vm.push(-vm.pop())
+			if !isNumber(vm.peek(0)) {
+				vm.runtimeError("Operand must be a number.")
+				return InterpretRuntimeError
+			}
+			vm.push(numberVal(-asNumber(vm.pop())))
 			break
 		case OpReturn:
 			printValue(vm.pop())
@@ -95,4 +164,12 @@ func (vm *VM) Interpret(source string) InterpretResult {
 
 	chunk.Free()
 	return result
+}
+
+func (vm *VM) runtimeError(format string, args ...interface{}) {
+	fmt.Printf(format, args...)
+	fmt.Println()
+	instruction := vm.ip - 1
+	line := vm.chunk.lines[instruction]
+	fmt.Printf("[line %d] in script\n", line)
 }

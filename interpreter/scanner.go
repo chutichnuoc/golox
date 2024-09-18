@@ -223,7 +223,7 @@ func (scanner *Scanner) identifierType() TokenType {
 		return scanner.checkKeyword(1, 4, "uper", TokenSuper)
 	case 't':
 		if scanner.current-scanner.start > 1 {
-			switch scanner.source[scanner.start] {
+			switch scanner.source[scanner.start+1] {
 			case 'h':
 				return scanner.checkKeyword(2, 2, "is", TokenThis)
 			case 'r':
