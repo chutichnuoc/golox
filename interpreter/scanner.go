@@ -8,7 +8,7 @@ type Scanner struct {
 }
 
 type Token struct {
-	tokenType int
+	tokenType TokenType
 	lexeme    string
 	line      int
 }
@@ -134,7 +134,7 @@ func (scanner *Scanner) match(expected uint8) bool {
 	return true
 }
 
-func (scanner *Scanner) makeToken(tokenType int) Token {
+func (scanner *Scanner) makeToken(tokenType TokenType) Token {
 	token := Token{}
 	token.tokenType = tokenType
 	token.lexeme = scanner.source[scanner.start:scanner.current]
@@ -183,14 +183,14 @@ func (scanner *Scanner) skipWhiteSpace() {
 	}
 }
 
-func (scanner *Scanner) checkKeyword(start int, length int, rest string, tokenType int) int {
+func (scanner *Scanner) checkKeyword(start int, length int, rest string, tokenType TokenType) TokenType {
 	if scanner.current-scanner.start == start+length && scanner.source[scanner.start+start:scanner.current] == rest {
 		return tokenType
 	}
 	return TokenIdentifier
 }
 
-func (scanner *Scanner) identifierType() int {
+func (scanner *Scanner) identifierType() TokenType {
 	switch scanner.source[scanner.start] {
 	case 'a':
 		return scanner.checkKeyword(1, 2, "nd", TokenAnd)

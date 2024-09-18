@@ -1,5 +1,7 @@
 package interpreter
 
+type TokenType float64
+
 const (
 	// Single-character tokens.
 	TokenLeftParen = iota

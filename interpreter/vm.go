@@ -29,7 +29,7 @@ func (vm *VM) pop() Value {
 	return vm.stack[vm.stackTop]
 }
 
-func (vm *VM) run() int {
+func (vm *VM) run() InterpretResult {
 	for {
 		if DebugTraceExecution {
 			fmt.Print("          ")
@@ -45,7 +45,8 @@ func (vm *VM) run() int {
 		vm.ip++
 		switch instruction {
 		case OpConstant:
-			constant := vm.chunk.constants.values[vm.ip]
+			constantIndex := vm.chunk.code[vm.ip]
+			constant := vm.chunk.constants.values[constantIndex]
 			vm.ip++
 			vm.push(constant)
 			break
@@ -80,7 +81,18 @@ func (vm *VM) run() int {
 	}
 }
 
-func (vm *VM) Interpret(source string) int {
-	compile(source)
-	return InterpretOk
+func (vm *VM) Interpret(source string) InterpretResult {
+	chunk := NewChunk()
+	if !compile(source, chunk) {
+		chunk.Free()
+		return InterpretCompileError
+	}
+
+	vm.chunk = *chunk
+	vm.ip = 0
+
+	result := vm.run()
+
+	chunk.Free()
+	return result
 }

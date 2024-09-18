@@ -9,17 +9,14 @@ import (
 
 func main() {
 	vm := lox.InitVM()
-	runFile(vm, "C:\\Users\\hungle\\code\\test.lox")
-	//if len(os.Args) == 1 {
-	//	repl(vm)
-	//} else if len(os.Args) == 2 {
-	//	runFile(vm, os.Args[1])
-	//} else {
-	//	fmt.Println("Usage: lox [path]")
-	//	os.Exit(64)
-	//}
-
-	//vm.Interpret()
+	if len(os.Args) == 1 {
+		repl(vm)
+	} else if len(os.Args) == 2 {
+		runFile(vm, os.Args[1])
+	} else {
+		fmt.Println("Usage: lox [path]")
+		os.Exit(64)
+	}
 	vm.Free()
 }
 

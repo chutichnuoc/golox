@@ -2,6 +2,7 @@ package interpreter
 
 import "fmt"
 
+const DebugPrintCode = true
 const DebugTraceExecution = true
 
 func DisassembleChunk(chunk *Chunk, name string) {
