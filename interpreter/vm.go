@@ -105,8 +105,7 @@ func (vm *VM) run() InterpretResult {
 				b := asNumber(vm.pop())
 				a := asNumber(vm.pop())
 				vm.push(numberVal(a + b))
-			}
-			if !isNumber(vm.peek(0)) || !isNumber(vm.peek(1)) {
+			} else {
 				vm.runtimeError("Operands must be two numbers or two strings.")
 				return InterpretRuntimeError
 			}

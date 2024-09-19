@@ -137,7 +137,11 @@ func (scanner *Scanner) match(expected uint8) bool {
 func (scanner *Scanner) makeToken(tokenType TokenType) Token {
 	token := Token{}
 	token.tokenType = tokenType
-	token.lexeme = scanner.source[scanner.start:scanner.current]
+	if tokenType == TokenString {
+		token.lexeme = scanner.source[scanner.start+1 : scanner.current-1]
+	} else {
+		token.lexeme = scanner.source[scanner.start:scanner.current]
+	}
 	token.line = scanner.line
 	return token
 }
