@@ -5,7 +5,7 @@ import (
 	"strconv"
 )
 
-type ParseFn func()
+type ParseFn func(canAssign bool)
 
 type Parser struct {
 	current   Token
@@ -55,7 +55,7 @@ func compile(source string, chunk *Chunk) bool {
 		TokenGreaterEqual: {nil, binary, PrecComparison},
 		TokenLess:         {nil, binary, PrecComparison},
 		TokenLessEqual:    {nil, binary, PrecComparison},
-		TokenIdentifier:   {nil, nil, PrecNone},
+		TokenIdentifier:   {variable, nil, PrecNone},
 		TokenString:       {_string, nil, PrecNone},
 		TokenNumber:       {number, nil, PrecNone},
 		TokenAnd:          {nil, nil, PrecNone},
@@ -82,8 +82,11 @@ func compile(source string, chunk *Chunk) bool {
 	compilingChunk = chunk
 
 	parser.advance()
-	parser.expression()
-	parser.consume(TokenEof, "Expect end of expression.")
+
+	for !match(TokenEof) {
+		declaration()
+	}
+
 	parser.endCompiler()
 	return !parser.hadError
 }
@@ -104,6 +107,73 @@ func (parser *Parser) expression() {
 	parsePrecedence(PrecAssignment)
 }
 
+func varDeclaration() {
+	global := parseVariable("Expect variable name.")
+
+	if match(TokenEqual) {
+		parser.expression()
+	} else {
+		parser.emitByte(OpNil)
+	}
+	parser.consume(TokenSemicolon, "Expect ';' after variable declaration.")
+
+	defineVariable(global)
+}
+
+func expressionStatement() {
+	parser.expression()
+	parser.consume(TokenSemicolon, "Expect ';' after expression.")
+	parser.emitByte(OpPop)
+}
+
+func printStatement() {
+	parser.expression()
+	parser.consume(TokenSemicolon, "Expect ';' after value.")
+	parser.emitByte(OpPrint)
+}
+
+func synchronize() {
+	parser.panicMode = false
+	for parser.current.tokenType != TokenEof {
+		if parser.previous.tokenType == TokenSemicolon {
+			return
+		}
+		switch parser.current.tokenType {
+		case TokenClass:
+		case TokenFun:
+		case TokenVar:
+		case TokenFor:
+		case TokenIf:
+		case TokenWhile:
+		case TokenPrint:
+		case TokenReturn:
+			return
+		default:
+			// Do nothing.
+		}
+	}
+}
+
+func declaration() {
+	if match(TokenVar) {
+		varDeclaration()
+	} else {
+		statement()
+	}
+
+	if parser.panicMode {
+		synchronize()
+	}
+}
+
+func statement() {
+	if match(TokenPrint) {
+		printStatement()
+	} else {
+		expressionStatement()
+	}
+}
+
 func (parser *Parser) consume(tokenType TokenType, message string) {
 	if parser.current.tokenType == tokenType {
 		parser.advance()
@@ -111,6 +181,18 @@ func (parser *Parser) consume(tokenType TokenType, message string) {
 	}
 
 	errorAtCurrent(message)
+}
+
+func check(tokenType TokenType) bool {
+	return parser.current.tokenType == tokenType
+}
+
+func match(tokenType TokenType) bool {
+	if !check(tokenType) {
+		return false
+	}
+	parser.advance()
+	return true
 }
 
 func (parser *Parser) endCompiler() {
@@ -130,21 +212,39 @@ func parsePrecedence(precedence Precedence) {
 		return
 	}
 
-	prefixRule()
+	canAssign := precedence <= PrecAssignment
+	prefixRule(canAssign)
 
 	for precedence <= getRule(parser.current.tokenType).precedence {
 		parser.advance()
 		infixRule := getRule(parser.previous.tokenType).infix
-		infixRule()
+		infixRule(canAssign)
+	}
+
+	if canAssign && match(TokenEqual) {
+		_error("Invalid assignment target.")
 	}
 }
 
-func grouping() {
+func identifierConstant(name Token) uint8 {
+	return makeConstant(stringVal(name.lexeme))
+}
+
+func parseVariable(errorMessage string) uint8 {
+	parser.consume(TokenIdentifier, errorMessage)
+	return identifierConstant(parser.previous)
+}
+
+func defineVariable(global uint8) {
+	parser.emitBytes(OpDefineGlobal, global)
+}
+
+func grouping(canAssign bool) {
 	parser.expression()
 	parser.consume(TokenRightParen, "Expect ')' after expression.")
 }
 
-func unary() {
+func unary(canAssign bool) {
 	operatorType := parser.previous.tokenType
 
 	// Compile the operand.
@@ -163,7 +263,7 @@ func unary() {
 	}
 }
 
-func binary() {
+func binary(canAssign bool) {
 	operatorType := parser.previous.tokenType
 	rule := getRule(operatorType)
 	parsePrecedence(rule.precedence + 1)
@@ -204,7 +304,7 @@ func binary() {
 	}
 }
 
-func literal() {
+func literal(canAssign bool) {
 	switch parser.previous.tokenType {
 	case TokenFalse:
 		parser.emitByte(OpFalse)
@@ -220,14 +320,29 @@ func literal() {
 	}
 }
 
-func number() {
+func number(canAssign bool) {
 	value, _ := strconv.ParseFloat(parser.previous.lexeme, 64)
 	parser.emitConstant(numberVal(value))
 }
 
-func _string() {
+func _string(canAssign bool) {
 	stringValue := Value{valueType: ValString, as: union{string: parser.previous.lexeme}}
 	parser.emitConstant(stringValue)
+}
+
+func namedVariable(name Token, canAssign bool) {
+	arg := identifierConstant(name)
+
+	if canAssign && match(TokenEqual) {
+		parser.expression()
+		parser.emitBytes(OpSetGlobal, arg)
+	} else {
+		parser.emitBytes(OpGetGlobal, arg)
+	}
+}
+
+func variable(canAssign bool) {
+	namedVariable(parser.previous, canAssign)
 }
 
 func makeConstant(value Value) uint8 {

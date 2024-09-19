@@ -4,6 +4,8 @@ import (
 	"fmt"
 )
 
+var global = make(map[string]Value)
+
 type VM struct {
 	chunk    Chunk
 	ip       uint8
@@ -39,6 +41,17 @@ func (vm *VM) peek(distance int) Value {
 	return vm.stack[vm.stackTop-distance-1]
 }
 
+func (vm *VM) readConstant() Value {
+	constantIndex := vm.chunk.code[vm.ip]
+	constant := vm.chunk.constants.values[constantIndex]
+	vm.ip++
+	return constant
+}
+
+func (vm *VM) readString() string {
+	return asString(vm.readConstant())
+}
+
 func isFalsey(value Value) bool {
 	return isNil(value) || (isBool(value) && !asBool(value))
 }
@@ -59,9 +72,7 @@ func (vm *VM) run() InterpretResult {
 		vm.ip++
 		switch instruction {
 		case OpConstant:
-			constantIndex := vm.chunk.code[vm.ip]
-			constant := vm.chunk.constants.values[constantIndex]
-			vm.ip++
+			constant := vm.readConstant()
 			vm.push(constant)
 			break
 		case OpNil:
@@ -73,6 +84,31 @@ func (vm *VM) run() InterpretResult {
 		case OpFalse:
 			vm.push(boolVal(false))
 			break
+		case OpPop:
+			vm.pop()
+			break
+		case OpGetGlobal:
+			name := vm.readString()
+			value, ok := global[name]
+			if !ok {
+				vm.runtimeError("Undefined variable '%s'.", name)
+				return InterpretRuntimeError
+			}
+			vm.push(value)
+			break
+		case OpDefineGlobal:
+			name := vm.readString()
+			global[name] = vm.peek(0)
+			vm.pop()
+			break
+		case OpSetGlobal:
+			name := vm.readString()
+			_, ok := global[name]
+			if !ok {
+				vm.runtimeError("Undefined variable '%s'.", name)
+				return InterpretRuntimeError
+			}
+			global[name] = vm.peek(0)
 		case OpEqual:
 			b := vm.pop()
 			a := vm.pop()
@@ -147,9 +183,12 @@ func (vm *VM) run() InterpretResult {
 			}
 			vm.push(numberVal(-asNumber(vm.pop())))
 			break
-		case OpReturn:
+		case OpPrint:
 			printValue(vm.pop())
 			fmt.Println()
+			break
+		case OpReturn:
+			// Exit interpreter.
 			return InterpretOk
 		}
 	}

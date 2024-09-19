@@ -5,6 +5,10 @@ const (
 	OpNil
 	OpTrue
 	OpFalse
+	OpPop
+	OpGetGlobal
+	OpDefineGlobal
+	OpSetGlobal
 	OpEqual
 	OpGreater
 	OpLess
@@ -14,5 +18,6 @@ const (
 	OpDivide
 	OpNot
 	OpNegate
+	OpPrint
 	OpReturn
 )

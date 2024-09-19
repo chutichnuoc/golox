@@ -29,6 +29,14 @@ func disassembleInstruction(chunk *Chunk, offset int) int {
 		return simpleInstruction("OpTrue", offset)
 	case OpFalse:
 		return simpleInstruction("OpFalse", offset)
+	case OpPop:
+		return simpleInstruction("OpPop", offset)
+	case OpGetGlobal:
+		return constantInstruction("OpGetGlobal", chunk, offset)
+	case OpDefineGlobal:
+		return constantInstruction("OpDefineGlobal", chunk, offset)
+	case OpSetGlobal:
+		return constantInstruction("OpSetGlobal", chunk, offset)
 	case OpEqual:
 		return simpleInstruction("OpEqual", offset)
 	case OpGreater:
@@ -47,6 +55,8 @@ func disassembleInstruction(chunk *Chunk, offset int) int {
 		return simpleInstruction("OpNot", offset)
 	case OpNegate:
 		return simpleInstruction("OpNegate", offset)
+	case OpPrint:
+		return simpleInstruction("OpPrint", offset)
 	case OpReturn:
 		return simpleInstruction("OpReturn", offset)
 	default:
