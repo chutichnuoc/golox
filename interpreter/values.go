@@ -12,6 +12,7 @@ type Value struct {
 type union struct {
 	boolean bool
 	number  float64
+	string  string
 }
 
 func boolVal(value bool) Value {
@@ -26,12 +27,20 @@ func numberVal(value float64) Value {
 	return Value{valueType: ValNumber, as: union{number: value}}
 }
 
+func stringVal(value string) Value {
+	return Value{valueType: ValString, as: union{string: value}}
+}
+
 func asBool(value Value) bool {
 	return value.as.boolean
 }
 
 func asNumber(value Value) float64 {
 	return value.as.number
+}
+
+func asString(value Value) string {
+	return value.as.string
 }
 
 func isBool(value Value) bool {
@@ -44,6 +53,10 @@ func isNil(value Value) bool {
 
 func isNumber(value Value) bool {
 	return value.valueType == ValNumber
+}
+
+func isString(value Value) bool {
+	return value.valueType == ValString
 }
 
 type ValueArray struct {
@@ -78,11 +91,12 @@ func printValue(value Value) {
 		break
 	case ValNumber:
 		fmt.Printf("%g", asNumber(value))
+	case ValString:
+		fmt.Printf("%s", asString(value))
 	}
-
 }
 
-func valueEqual(a Value, b Value) bool {
+func valuesEqual(a Value, b Value) bool {
 	if a.valueType != b.valueType {
 		return false
 	}
@@ -93,6 +107,8 @@ func valueEqual(a Value, b Value) bool {
 		return true
 	case ValNumber:
 		return asNumber(a) == asNumber(b)
+	case ValString:
+		return asString(a) == asString(b)
 	default:
 		return false // Unreachable.
 	}

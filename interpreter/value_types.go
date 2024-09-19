@@ -6,4 +6,5 @@ const (
 	ValBool = iota
 	ValNil
 	ValNumber
+	ValString
 )

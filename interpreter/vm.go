@@ -76,7 +76,7 @@ func (vm *VM) run() InterpretResult {
 		case OpEqual:
 			b := vm.pop()
 			a := vm.pop()
-			vm.push(boolVal(valueEqual(a, b)))
+			vm.push(boolVal(valuesEqual(a, b)))
 			break
 		case OpGreater:
 			if !isNumber(vm.peek(0)) || !isNumber(vm.peek(1)) {
@@ -97,13 +97,19 @@ func (vm *VM) run() InterpretResult {
 			vm.push(boolVal(a < b))
 			break
 		case OpAdd:
+			if isString(vm.peek(0)) && isString(vm.peek(1)) {
+				b := asString(vm.pop())
+				a := asString(vm.pop())
+				vm.push(stringVal(a + b))
+			} else if isNumber(vm.peek(0)) && isNumber(vm.peek(1)) {
+				b := asNumber(vm.pop())
+				a := asNumber(vm.pop())
+				vm.push(numberVal(a + b))
+			}
 			if !isNumber(vm.peek(0)) || !isNumber(vm.peek(1)) {
-				vm.runtimeError("Operands must be numbers.")
+				vm.runtimeError("Operands must be two numbers or two strings.")
 				return InterpretRuntimeError
 			}
-			b := asNumber(vm.pop())
-			a := asNumber(vm.pop())
-			vm.push(numberVal(a + b))
 			break
 		case OpSubtract:
 			if !isNumber(vm.peek(0)) || !isNumber(vm.peek(1)) {

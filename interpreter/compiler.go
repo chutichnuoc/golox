@@ -56,7 +56,7 @@ func compile(source string, chunk *Chunk) bool {
 		TokenLess:         {nil, binary, PrecComparison},
 		TokenLessEqual:    {nil, binary, PrecComparison},
 		TokenIdentifier:   {nil, nil, PrecNone},
-		TokenString:       {nil, nil, PrecNone},
+		TokenString:       {_string, nil, PrecNone},
 		TokenNumber:       {number, nil, PrecNone},
 		TokenAnd:          {nil, nil, PrecNone},
 		TokenClass:        {nil, nil, PrecNone},
@@ -126,7 +126,7 @@ func parsePrecedence(precedence Precedence) {
 	parser.advance()
 	prefixRule := getRule(parser.previous.tokenType).prefix
 	if prefixRule == nil {
-		error("Expect expression.")
+		_error("Expect expression.")
 		return
 	}
 
@@ -225,10 +225,15 @@ func number() {
 	parser.emitConstant(numberVal(value))
 }
 
+func _string() {
+	stringValue := Value{valueType: ValString, as: union{string: parser.previous.lexeme}}
+	parser.emitConstant(stringValue)
+}
+
 func makeConstant(value Value) uint8 {
 	constant := currentChunk().AddConstant(value)
 	if constant > 255 {
-		error("Too many constants in one chunk.")
+		_error("Too many constants in one chunk.")
 		return 0
 	}
 	return constant
@@ -251,7 +256,7 @@ func (parser *Parser) emitByte(byte uint8) {
 	currentChunk().Write(byte, parser.previous.line)
 }
 
-func error(message string) {
+func _error(message string) {
 	errorAt(parser.previous, message)
 }
 
