@@ -20,14 +20,31 @@ type ParseRule struct {
 	precedence Precedence
 }
 
+type Local struct {
+	name  Token
+	depth int
+}
+
+type Compiler struct {
+	locals     [256]Local
+	localCount int
+	scopeDepth int
+}
+
 var rules []ParseRule
 
 var scanner *Scanner
 var parser = Parser{hadError: false, panicMode: false}
+var current *Compiler
 var compilingChunk *Chunk
 
 func currentChunk() *Chunk {
 	return compilingChunk
+}
+
+func initCompiler() {
+	compiler := Compiler{localCount: 0, scopeDepth: 0}
+	current = &compiler
 }
 
 func getRule(tokeType TokenType) ParseRule {
@@ -79,6 +96,7 @@ func compile(source string, chunk *Chunk) bool {
 	}
 
 	scanner = initScanner(source)
+	initCompiler()
 	compilingChunk = chunk
 
 	parser.advance()
@@ -103,15 +121,23 @@ func (parser *Parser) advance() {
 	}
 }
 
-func (parser *Parser) expression() {
+func expression() {
 	parsePrecedence(PrecAssignment)
+}
+
+func block() {
+	for !check(TokenRightBrace) && !check(TokenEof) {
+		declaration()
+	}
+
+	parser.consume(TokenRightBrace, "Expect '}' after block.")
 }
 
 func varDeclaration() {
 	global := parseVariable("Expect variable name.")
 
 	if match(TokenEqual) {
-		parser.expression()
+		expression()
 	} else {
 		parser.emitByte(OpNil)
 	}
@@ -121,13 +147,13 @@ func varDeclaration() {
 }
 
 func expressionStatement() {
-	parser.expression()
+	expression()
 	parser.consume(TokenSemicolon, "Expect ';' after expression.")
 	parser.emitByte(OpPop)
 }
 
 func printStatement() {
-	parser.expression()
+	expression()
 	parser.consume(TokenSemicolon, "Expect ';' after value.")
 	parser.emitByte(OpPrint)
 }
@@ -151,6 +177,7 @@ func synchronize() {
 		default:
 			// Do nothing.
 		}
+		parser.advance()
 	}
 }
 
@@ -169,6 +196,10 @@ func declaration() {
 func statement() {
 	if match(TokenPrint) {
 		printStatement()
+	} else if match(TokenLeftBrace) {
+		beginScope()
+		block()
+		endScope()
 	} else {
 		expressionStatement()
 	}
@@ -204,6 +235,19 @@ func (parser *Parser) endCompiler() {
 	}
 }
 
+func beginScope() {
+	current.scopeDepth++
+}
+
+func endScope() {
+	current.scopeDepth--
+
+	for current.localCount > 0 && current.locals[current.localCount-1].depth > current.scopeDepth {
+		parser.emitByte(OpPop)
+		current.localCount--
+	}
+}
+
 func parsePrecedence(precedence Precedence) {
 	parser.advance()
 	prefixRule := getRule(parser.previous.tokenType).prefix
@@ -230,17 +274,77 @@ func identifierConstant(name Token) uint8 {
 	return makeConstant(stringVal(name.lexeme))
 }
 
+func identifiersEqual(a Token, b Token) bool {
+	return a.lexeme == b.lexeme
+}
+
+func resolveLocal(compiler *Compiler, name Token) int {
+	for i := compiler.localCount - 1; i >= 0; i-- {
+		local := compiler.locals[i]
+		if identifiersEqual(name, local.name) {
+			if local.depth == -1 {
+				_error("Can't read local variable in its own initializer.")
+			}
+			return i
+		}
+	}
+	return -1
+}
+
+func addLocal(name Token) {
+	if current.localCount == 256 {
+		_error("Too many local variables in function.")
+		return
+	}
+
+	local := current.locals[current.localCount]
+	current.localCount++
+	local.name = name
+	local.depth = -1
+}
+
+func declareVariable() {
+	if current.scopeDepth == 0 {
+		return
+	}
+	name := parser.previous
+	for i := current.localCount - 1; i >= 0; i-- {
+		local := current.locals[i]
+		if local.depth != -1 && local.depth < current.scopeDepth {
+			break
+		}
+		if identifiersEqual(name, local.name) {
+			_error("Already a variable with this name in this scope.")
+		}
+	}
+	addLocal(name)
+}
+
 func parseVariable(errorMessage string) uint8 {
 	parser.consume(TokenIdentifier, errorMessage)
+
+	declareVariable()
+	if current.scopeDepth > 0 {
+		return 0
+	}
+
 	return identifierConstant(parser.previous)
 }
 
+func markInitialized() {
+	current.locals[current.localCount-1].depth = current.scopeDepth
+}
+
 func defineVariable(global uint8) {
+	if current.scopeDepth > 0 {
+		markInitialized()
+		return
+	}
 	parser.emitBytes(OpDefineGlobal, global)
 }
 
 func grouping(canAssign bool) {
-	parser.expression()
+	expression()
 	parser.consume(TokenRightParen, "Expect ')' after expression.")
 }
 
@@ -331,13 +435,22 @@ func _string(canAssign bool) {
 }
 
 func namedVariable(name Token, canAssign bool) {
-	arg := identifierConstant(name)
+	var getOp uint8
+	var setOp uint8
+	arg := resolveLocal(current, name)
+	if arg != -1 {
+		getOp = OpGetLocal
+		setOp = OpSetLocal
+	} else {
+		getOp = OpGetGlobal
+		setOp = OpSetGlobal
+	}
 
 	if canAssign && match(TokenEqual) {
-		parser.expression()
-		parser.emitBytes(OpSetGlobal, arg)
+		expression()
+		parser.emitBytes(setOp, uint8(arg))
 	} else {
-		parser.emitBytes(OpGetGlobal, arg)
+		parser.emitBytes(getOp, uint8(arg))
 	}
 }
 

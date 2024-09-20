@@ -41,10 +41,15 @@ func (vm *VM) peek(distance int) Value {
 	return vm.stack[vm.stackTop-distance-1]
 }
 
-func (vm *VM) readConstant() Value {
-	constantIndex := vm.chunk.code[vm.ip]
-	constant := vm.chunk.constants.values[constantIndex]
+func (vm *VM) readByte() uint8 {
+	ip := vm.ip
 	vm.ip++
+	return ip
+}
+
+func (vm *VM) readConstant() Value {
+	constantIndex := vm.chunk.code[vm.readByte()]
+	constant := vm.chunk.constants.values[constantIndex]
 	return constant
 }
 
@@ -68,8 +73,7 @@ func (vm *VM) run() InterpretResult {
 			fmt.Println()
 			disassembleInstruction(&vm.chunk, int(vm.ip))
 		}
-		instruction := vm.chunk.code[vm.ip]
-		vm.ip++
+		instruction := vm.chunk.code[vm.readByte()]
 		switch instruction {
 		case OpConstant:
 			constant := vm.readConstant()
@@ -86,6 +90,14 @@ func (vm *VM) run() InterpretResult {
 			break
 		case OpPop:
 			vm.pop()
+			break
+		case OpGetLocal:
+			slot := vm.readByte()
+			vm.push(vm.stack[slot])
+			break
+		case OpSetLocal:
+			slot := vm.readByte()
+			vm.stack[slot] = vm.peek(0)
 			break
 		case OpGetGlobal:
 			name := vm.readString()
@@ -109,6 +121,7 @@ func (vm *VM) run() InterpretResult {
 				return InterpretRuntimeError
 			}
 			global[name] = vm.peek(0)
+			break
 		case OpEqual:
 			b := vm.pop()
 			a := vm.pop()

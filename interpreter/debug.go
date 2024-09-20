@@ -31,6 +31,10 @@ func disassembleInstruction(chunk *Chunk, offset int) int {
 		return simpleInstruction("OpFalse", offset)
 	case OpPop:
 		return simpleInstruction("OpPop", offset)
+	case OpGetLocal:
+		return byteInstruction("OpGetLocal", chunk, offset)
+	case OpSetLocal:
+		return byteInstruction("OpSetLocal", chunk, offset)
 	case OpGetGlobal:
 		return constantInstruction("OpGetGlobal", chunk, offset)
 	case OpDefineGlobal:
@@ -76,4 +80,10 @@ func constantInstruction(name string, chunk *Chunk, offset int) int {
 func simpleInstruction(name string, offset int) int {
 	fmt.Printf("%s\n", name)
 	return offset + 1
+}
+
+func byteInstruction(name string, chunk *Chunk, offset int) int {
+	slot := chunk.code[offset+1]
+	fmt.Printf("%-16s %4d\n", name, slot)
+	return offset + 2
 }
