@@ -204,7 +204,7 @@ func (scanner *Scanner) identifierType() TokenType {
 		return scanner.checkKeyword(1, 3, "lse", TokenElse)
 	case 'f':
 		if scanner.current-scanner.start > 1 {
-			switch scanner.source[scanner.start] {
+			switch scanner.source[scanner.start+1] {
 			case 'a':
 				return scanner.checkKeyword(2, 3, "lse", TokenFalse)
 			case 'o':

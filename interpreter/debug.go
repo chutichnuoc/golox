@@ -2,8 +2,8 @@ package interpreter
 
 import "fmt"
 
-const DebugPrintCode = true
-const DebugTraceExecution = true
+const DebugPrintCode = false
+const DebugTraceExecution = false
 
 func DisassembleChunk(chunk *Chunk, name string) {
 	fmt.Printf("== %s ==\n", name)
@@ -61,6 +61,12 @@ func disassembleInstruction(chunk *Chunk, offset int) int {
 		return simpleInstruction("OpNegate", offset)
 	case OpPrint:
 		return simpleInstruction("OpPrint", offset)
+	case OpJump:
+		return jumpInstruction("OpJump", 1, chunk, offset)
+	case OpJumpIfFalse:
+		return jumpInstruction("OpJumpIfFalse", 1, chunk, offset)
+	case OpLoop:
+		return jumpInstruction("OpLoop", -1, chunk, offset)
 	case OpReturn:
 		return simpleInstruction("OpReturn", offset)
 	default:
@@ -86,4 +92,11 @@ func byteInstruction(name string, chunk *Chunk, offset int) int {
 	slot := chunk.code[offset+1]
 	fmt.Printf("%-16s %4d\n", name, slot)
 	return offset + 2
+}
+
+func jumpInstruction(name string, sign int, chunk *Chunk, offset int) int {
+	jump := uint16(chunk.code[offset+1] << 8)
+	jump |= uint16(chunk.code[offset+2])
+	fmt.Printf("%-16s %4d -> %d\n", name, offset, offset+3+sign*int(jump))
+	return offset + 3
 }

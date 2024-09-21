@@ -75,7 +75,7 @@ func compile(source string, chunk *Chunk) bool {
 		TokenIdentifier:   {variable, nil, PrecNone},
 		TokenString:       {_string, nil, PrecNone},
 		TokenNumber:       {number, nil, PrecNone},
-		TokenAnd:          {nil, nil, PrecNone},
+		TokenAnd:          {nil, _and, PrecAnd},
 		TokenClass:        {nil, nil, PrecNone},
 		TokenElse:         {nil, nil, PrecNone},
 		TokenFalse:        {literal, nil, PrecNone},
@@ -83,7 +83,7 @@ func compile(source string, chunk *Chunk) bool {
 		TokenFun:          {nil, nil, PrecNone},
 		TokenIf:           {nil, nil, PrecNone},
 		TokenNil:          {literal, nil, PrecNone},
-		TokenOr:           {nil, nil, PrecNone},
+		TokenOr:           {nil, _or, PrecOr},
 		TokenPrint:        {nil, nil, PrecNone},
 		TokenReturn:       {nil, nil, PrecNone},
 		TokenSuper:        {nil, nil, PrecNone},
@@ -152,10 +152,90 @@ func expressionStatement() {
 	parser.emitByte(OpPop)
 }
 
+func forStatement() {
+	beginScope()
+	parser.consume(TokenLeftParen, "Expect '(' after 'for'.")
+	if match(TokenSemicolon) {
+		// No initializer.
+	} else if match(TokenVar) {
+		varDeclaration()
+	} else {
+		expressionStatement()
+	}
+
+	loopStart := len(currentChunk().code)
+	exitJump := -1
+	if !match(TokenSemicolon) {
+		expression()
+		parser.consume(TokenSemicolon, "Expect ';' after loop condition.")
+
+		// Jump out of the loop if the condition is false.
+		exitJump = parser.emitJump(OpJumpIfFalse)
+		parser.emitByte(OpPop) // Condition.
+	}
+
+	if !match(TokenRightParen) {
+		bodyJump := parser.emitJump(OpJump)
+		incrementStart := len(currentChunk().code)
+		expression()
+		parser.emitByte(OpPop)
+		parser.consume(TokenRightParen, "Expect ')' after for clauses.")
+
+		parser.emitLoop(loopStart)
+		loopStart = incrementStart
+		parser.patchJump(bodyJump)
+	}
+
+	statement()
+	parser.emitLoop(loopStart)
+
+	if exitJump != -1 {
+		parser.patchJump(exitJump)
+		parser.emitByte(OpPop)
+	}
+
+	endScope()
+}
+
+func ifStatement() {
+	parser.consume(TokenLeftParen, "Expect '(' after if.")
+	expression()
+	parser.consume(TokenRightParen, "Expect ')' after condition.")
+
+	thenJump := parser.emitJump(OpJumpIfFalse)
+	parser.emitByte(OpPop)
+	statement()
+
+	elseJump := parser.emitJump(OpJump)
+
+	parser.patchJump(thenJump)
+	parser.emitByte(OpPop)
+
+	if match(TokenElse) {
+		statement()
+	}
+	parser.patchJump(elseJump)
+}
+
 func printStatement() {
 	expression()
 	parser.consume(TokenSemicolon, "Expect ';' after value.")
 	parser.emitByte(OpPrint)
+}
+
+func whileStatement() {
+	loopStart := len(currentChunk().code)
+	parser.consume(TokenLeftParen, "Expect '(' after 'while'.")
+	expression()
+	parser.consume(TokenRightParen, "Expect ')' after condition.")
+
+	exitJump := parser.emitJump(OpJumpIfFalse)
+	parser.emitByte(OpPop)
+	statement()
+	parser.emitLoop(loopStart)
+
+	parser.patchJump(exitJump)
+	parser.emitByte(OpPop)
 }
 
 func synchronize() {
@@ -196,6 +276,12 @@ func declaration() {
 func statement() {
 	if match(TokenPrint) {
 		printStatement()
+	} else if match(TokenFor) {
+		forStatement()
+	} else if match(TokenIf) {
+		ifStatement()
+	} else if match(TokenWhile) {
+		whileStatement()
 	} else if match(TokenLeftBrace) {
 		beginScope()
 		block()
@@ -297,10 +383,10 @@ func addLocal(name Token) {
 		return
 	}
 
-	local := current.locals[current.localCount]
+	local := &current.locals[current.localCount]
 	current.localCount++
 	local.name = name
-	local.depth = -1
+	local.depth = current.scopeDepth
 }
 
 func declareVariable() {
@@ -341,6 +427,15 @@ func defineVariable(global uint8) {
 		return
 	}
 	parser.emitBytes(OpDefineGlobal, global)
+}
+
+func _and(canAssign bool) {
+	endJump := parser.emitJump(OpJumpIfFalse)
+
+	parser.emitByte(OpPop)
+	parsePrecedence(PrecAnd)
+
+	parser.patchJump(endJump)
 }
 
 func grouping(canAssign bool) {
@@ -429,6 +524,17 @@ func number(canAssign bool) {
 	parser.emitConstant(numberVal(value))
 }
 
+func _or(canAssign bool) {
+	elseJump := parser.emitJump(OpJumpIfFalse)
+	endJump := parser.emitJump(OpJump)
+
+	parser.patchJump(elseJump)
+	parser.emitByte(OpPop)
+
+	parsePrecedence(PrecOr)
+	parser.patchJump(endJump)
+}
+
 func _string(canAssign bool) {
 	stringValue := Value{valueType: ValString, as: union{string: parser.previous.lexeme}}
 	parser.emitConstant(stringValue)
@@ -468,12 +574,43 @@ func makeConstant(value Value) uint8 {
 	return constant
 }
 
+func (parser *Parser) patchJump(offset int) {
+	// -2 to adjust for the bytecode for the jump offset itself.
+	jump := len(currentChunk().code) - offset - 2
+
+	if jump > 65535 {
+		_error("Too much code to jump over.")
+	}
+
+	currentChunk().code[offset] = uint8((jump >> 8) & 0xff)
+	currentChunk().code[offset+1] = uint8(jump & 0xff)
+}
+
+func (parser *Parser) emitLoop(loopStart int) {
+	parser.emitByte(OpLoop)
+
+	offset := len(currentChunk().code) - loopStart + 2
+	if offset > 65535 {
+		_error("Loop body too large.")
+	}
+
+	parser.emitByte(byte((offset >> 8) & 0xff))
+	parser.emitByte(byte(offset & 0xff))
+}
+
 func (parser *Parser) emitConstant(value Value) {
 	parser.emitBytes(OpConstant, makeConstant(value))
 }
 
 func (parser *Parser) emitReturn() {
 	parser.emitByte(OpReturn)
+}
+
+func (parser *Parser) emitJump(instruction uint8) int {
+	parser.emitByte(instruction)
+	parser.emitByte(0xff)
+	parser.emitByte(0xff)
+	return len(currentChunk().code) - 2
 }
 
 func (parser *Parser) emitBytes(byte1 uint8, byte2 uint8) {

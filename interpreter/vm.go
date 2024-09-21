@@ -8,7 +8,7 @@ var global = make(map[string]Value)
 
 type VM struct {
 	chunk    Chunk
-	ip       uint8
+	ip       uint16
 	stack    [256]Value
 	stackTop int
 }
@@ -49,6 +49,11 @@ func (vm *VM) readByte() uint8 {
 
 func (vm *VM) readConstant() Value {
 	return vm.chunk.constants.values[vm.readByte()]
+}
+
+func (vm *VM) readShort() uint16 {
+	vm.ip += 2
+	return uint16((vm.chunk.code[vm.ip-2] << 8) | vm.chunk.code[vm.ip-1])
 }
 
 func (vm *VM) readString() string {
@@ -197,6 +202,20 @@ func (vm *VM) run() InterpretResult {
 		case OpPrint:
 			printValue(vm.pop())
 			fmt.Println()
+			break
+		case OpJump:
+			offset := vm.readShort()
+			vm.ip += offset
+			break
+		case OpJumpIfFalse:
+			offset := vm.readShort()
+			if isFalsey(vm.peek(0)) {
+				vm.ip += offset
+				break
+			}
+		case OpLoop:
+			offset := vm.readShort()
+			vm.ip -= offset
 			break
 		case OpReturn:
 			// Exit interpreter.

@@ -21,5 +21,8 @@ const (
 	OpNot
 	OpNegate
 	OpPrint
+	OpJump
+	OpJumpIfFalse
+	OpLoop
 	OpReturn
 )
