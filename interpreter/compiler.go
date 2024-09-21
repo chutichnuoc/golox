@@ -442,6 +442,7 @@ func namedVariable(name Token, canAssign bool) {
 		getOp = OpGetLocal
 		setOp = OpSetLocal
 	} else {
+		arg = int(identifierConstant(name))
 		getOp = OpGetGlobal
 		setOp = OpSetGlobal
 	}

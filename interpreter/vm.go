@@ -42,15 +42,13 @@ func (vm *VM) peek(distance int) Value {
 }
 
 func (vm *VM) readByte() uint8 {
-	ip := vm.ip
+	code := vm.chunk.code[vm.ip]
 	vm.ip++
-	return ip
+	return code
 }
 
 func (vm *VM) readConstant() Value {
-	constantIndex := vm.chunk.code[vm.readByte()]
-	constant := vm.chunk.constants.values[constantIndex]
-	return constant
+	return vm.chunk.constants.values[vm.readByte()]
 }
 
 func (vm *VM) readString() string {
@@ -73,7 +71,7 @@ func (vm *VM) run() InterpretResult {
 			fmt.Println()
 			disassembleInstruction(&vm.chunk, int(vm.ip))
 		}
-		instruction := vm.chunk.code[vm.readByte()]
+		instruction := vm.readByte()
 		switch instruction {
 		case OpConstant:
 			constant := vm.readConstant()
