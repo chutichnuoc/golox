@@ -2,25 +2,37 @@ package interpreter
 
 import (
 	"fmt"
+	"time"
 )
+
+const FramesMax int = 64
+const StackMax = FramesMax * 256
 
 var global = make(map[string]Value)
 
-type VM struct {
-	chunk    Chunk
+type CallFrame struct {
+	function *Function
 	ip       uint16
-	stack    [256]Value
-	stackTop int
+	slots    []Value
+}
+
+type VM struct {
+	frames     [FramesMax]CallFrame
+	frameCount int
+	stack      [StackMax]Value
+	stackTop   int
 }
 
 func InitVM() *VM {
 	vm := &VM{}
 	vm.resetStack()
+	vm.defineNative("clock", clockNative)
 	return vm
 }
 
 func (vm *VM) resetStack() {
 	vm.stackTop = 0
+	vm.frameCount = 0
 }
 
 func (vm *VM) Free() {
@@ -41,23 +53,56 @@ func (vm *VM) peek(distance int) Value {
 	return vm.stack[vm.stackTop-distance-1]
 }
 
-func (vm *VM) readByte() uint8 {
-	code := vm.chunk.code[vm.ip]
-	vm.ip++
+func (vm *VM) call(function *Function, argCount int) bool {
+	if argCount != function.arity {
+		vm.runtimeError("Expected %d arguments but got %d.", function.arity, argCount)
+		return false
+	}
+
+	if vm.frameCount == FramesMax {
+		vm.runtimeError("Stack overflow.")
+		return false
+	}
+
+	frame := &vm.frames[vm.frameCount]
+	vm.frameCount++
+	frame.function = function
+	frame.ip = 0
+	frame.slots = vm.stack[vm.stackTop-argCount-1:]
+	return true
+}
+
+func (vm *VM) callValue(callee Value, argCount int) bool {
+	if isFunction(callee) {
+		return vm.call(asFunction(callee), argCount)
+	} else if isNativeFn(callee) {
+		native := asNativeFn(callee)
+		result := native(argCount, vm.stack[vm.stackTop-argCount:])
+		vm.stackTop -= argCount + 1
+		vm.push(result)
+		return true
+	}
+	vm.runtimeError("Can only call functions and classes.")
+	return false
+}
+
+func (frame *CallFrame) readByte() uint8 {
+	code := frame.function.chunk.code[frame.ip]
+	frame.ip++
 	return code
 }
 
-func (vm *VM) readConstant() Value {
-	return vm.chunk.constants.values[vm.readByte()]
+func (frame *CallFrame) readConstant() Value {
+	return frame.function.chunk.constants.values[frame.readByte()]
 }
 
-func (vm *VM) readShort() uint16 {
-	vm.ip += 2
-	return uint16((vm.chunk.code[vm.ip-2] << 8) | vm.chunk.code[vm.ip-1])
+func (frame *CallFrame) readShort() uint16 {
+	frame.ip += 2
+	return uint16((frame.function.chunk.code[frame.ip-2] << 8) | frame.function.chunk.code[frame.ip-1])
 }
 
-func (vm *VM) readString() string {
-	return asString(vm.readConstant())
+func (frame *CallFrame) readString() string {
+	return asString(frame.readConstant())
 }
 
 func isFalsey(value Value) bool {
@@ -65,6 +110,7 @@ func isFalsey(value Value) bool {
 }
 
 func (vm *VM) run() InterpretResult {
+	frame := &vm.frames[vm.frameCount-1]
 	for {
 		if DebugTraceExecution {
 			fmt.Print("          ")
@@ -74,12 +120,12 @@ func (vm *VM) run() InterpretResult {
 				fmt.Print(" ]")
 			}
 			fmt.Println()
-			disassembleInstruction(&vm.chunk, int(vm.ip))
+			disassembleInstruction(&frame.function.chunk, int(frame.ip))
 		}
-		instruction := vm.readByte()
+		instruction := frame.readByte()
 		switch instruction {
 		case OpConstant:
-			constant := vm.readConstant()
+			constant := frame.readConstant()
 			vm.push(constant)
 			break
 		case OpNil:
@@ -95,15 +141,15 @@ func (vm *VM) run() InterpretResult {
 			vm.pop()
 			break
 		case OpGetLocal:
-			slot := vm.readByte()
-			vm.push(vm.stack[slot])
+			slot := frame.readByte()
+			vm.push(frame.slots[slot])
 			break
 		case OpSetLocal:
-			slot := vm.readByte()
-			vm.stack[slot] = vm.peek(0)
+			slot := frame.readByte()
+			frame.slots[slot] = vm.peek(0)
 			break
 		case OpGetGlobal:
-			name := vm.readString()
+			name := frame.readString()
 			value, ok := global[name]
 			if !ok {
 				vm.runtimeError("Undefined variable '%s'.", name)
@@ -112,12 +158,12 @@ func (vm *VM) run() InterpretResult {
 			vm.push(value)
 			break
 		case OpDefineGlobal:
-			name := vm.readString()
+			name := frame.readString()
 			global[name] = vm.peek(0)
 			vm.pop()
 			break
 		case OpSetGlobal:
-			name := vm.readString()
+			name := frame.readString()
 			_, ok := global[name]
 			if !ok {
 				vm.runtimeError("Undefined variable '%s'.", name)
@@ -204,46 +250,81 @@ func (vm *VM) run() InterpretResult {
 			fmt.Println()
 			break
 		case OpJump:
-			offset := vm.readShort()
-			vm.ip += offset
+			offset := frame.readShort()
+			frame.ip += offset
 			break
 		case OpJumpIfFalse:
-			offset := vm.readShort()
+			offset := frame.readShort()
 			if isFalsey(vm.peek(0)) {
-				vm.ip += offset
+				frame.ip += offset
 				break
 			}
 		case OpLoop:
-			offset := vm.readShort()
-			vm.ip -= offset
+			offset := frame.readShort()
+			frame.ip -= offset
+			break
+		case OpCall:
+			argCount := int(frame.readByte())
+			if !vm.callValue(vm.peek(argCount), argCount) {
+				return InterpretRuntimeError
+			}
+			frame = &vm.frames[vm.frameCount-1]
 			break
 		case OpReturn:
-			// Exit interpreter.
-			return InterpretOk
+			result := vm.pop()
+			vm.frameCount--
+			if vm.frameCount == 0 {
+				vm.pop()
+				return InterpretOk
+			}
+
+			vm.stackTop = len(vm.stack) - len(frame.slots)
+			vm.push(result)
+			frame = &vm.frames[vm.frameCount-1]
+			break
 		}
 	}
 }
 
 func (vm *VM) Interpret(source string) InterpretResult {
-	chunk := NewChunk()
-	if !compile(source, chunk) {
-		chunk.Free()
+	function := compile(source)
+	if function == nil {
 		return InterpretCompileError
 	}
 
-	vm.chunk = *chunk
-	vm.ip = 0
+	vm.push(functionVal(function))
+	vm.call(function, 0)
 
-	result := vm.run()
-
-	chunk.Free()
-	return result
+	return vm.run()
 }
 
 func (vm *VM) runtimeError(format string, args ...interface{}) {
 	fmt.Printf(format, args...)
 	fmt.Println()
-	instruction := vm.ip - 1
-	line := vm.chunk.lines[instruction]
-	fmt.Printf("[line %d] in script\n", line)
+
+	for i := vm.frameCount - 1; i >= 0; i-- {
+		frame := &vm.frames[i]
+		function := frame.function
+		instruction := frame.ip - 1
+		fmt.Printf("[line %d] in ", function.chunk.lines[instruction])
+		if function.name == "" {
+			fmt.Printf("script\n")
+		} else {
+			fmt.Printf("%s()\n", function.name)
+		}
+	}
+
+	vm.resetStack()
+}
+
+func (vm *VM) defineNative(name string, function NativeFn) {
+	vm.push(stringVal(name))
+	vm.push(nativeFnVal(function))
+	global[asString(vm.stack[0])] = vm.stack[1]
+	vm.pop()
+	vm.pop()
+}
+
+func clockNative(argCount int, args []Value) Value {
+	return numberVal(float64(time.Now().UnixNano() / int64(time.Second)))
 }

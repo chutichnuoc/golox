@@ -24,5 +24,6 @@ const (
 	OpJump
 	OpJumpIfFalse
 	OpLoop
+	OpCall
 	OpReturn
 )

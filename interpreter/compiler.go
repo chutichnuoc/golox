@@ -26,6 +26,10 @@ type Local struct {
 }
 
 type Compiler struct {
+	enclosing    *Compiler
+	function     *Function
+	functionType FunctionType
+
 	locals     [256]Local
 	localCount int
 	scopeDepth int
@@ -36,24 +40,35 @@ var rules []ParseRule
 var scanner *Scanner
 var parser = Parser{hadError: false, panicMode: false}
 var current *Compiler
-var compilingChunk *Chunk
 
 func currentChunk() *Chunk {
-	return compilingChunk
+	return &current.function.chunk
 }
 
-func initCompiler() {
-	compiler := Compiler{localCount: 0, scopeDepth: 0}
-	current = &compiler
+func initCompiler(compiler *Compiler, functionType FunctionType) {
+	compiler.enclosing = current
+	compiler.functionType = functionType
+	compiler.localCount = 0
+	compiler.scopeDepth = 0
+	compiler.function = newFunction()
+	current = compiler
+	if functionType != TypeScript {
+		current.function.name = parser.previous.lexeme
+	}
+
+	local := &current.locals[current.localCount]
+	current.localCount++
+	local.depth = 0
+	local.name.lexeme = ""
 }
 
 func getRule(tokeType TokenType) ParseRule {
 	return rules[int(tokeType)]
 }
 
-func compile(source string, chunk *Chunk) bool {
+func compile(source string) *Function {
 	rules = []ParseRule{
-		TokenLeftParen:    {grouping, nil, PrecNone},
+		TokenLeftParen:    {grouping, call, PrecCall},
 		TokenRightParen:   {nil, nil, PrecNone},
 		TokenLeftBrace:    {nil, nil, PrecNone},
 		TokenRightBrace:   {nil, nil, PrecNone},
@@ -96,8 +111,8 @@ func compile(source string, chunk *Chunk) bool {
 	}
 
 	scanner = initScanner(source)
-	initCompiler()
-	compilingChunk = chunk
+	var compiler Compiler
+	initCompiler(&compiler, TypeScript)
 
 	parser.advance()
 
@@ -105,8 +120,12 @@ func compile(source string, chunk *Chunk) bool {
 		declaration()
 	}
 
-	parser.endCompiler()
-	return !parser.hadError
+	function := parser.endCompiler()
+	if parser.hadError {
+		return nil
+	} else {
+		return function
+	}
 }
 
 func (parser *Parser) advance() {
@@ -131,6 +150,37 @@ func block() {
 	}
 
 	parser.consume(TokenRightBrace, "Expect '}' after block.")
+}
+
+func function(functionType FunctionType) {
+	var compiler Compiler
+	initCompiler(&compiler, functionType)
+	beginScope()
+
+	parser.consume(TokenLeftParen, "Expect '(' after function name.")
+	if !check(TokenRightParen) {
+		for ok := true; ok; ok = match(TokenComma) {
+			current.function.arity++
+			if current.function.arity > 255 {
+				errorAtCurrent("Can't have more than 255 parameters.")
+			}
+			constant := parseVariable("Expect parameter name.")
+			defineVariable(constant)
+		}
+	}
+	parser.consume(TokenRightParen, "Expect ')' after parameters.")
+	parser.consume(TokenLeftBrace, "Expect '{' before function body.")
+	block()
+
+	function := parser.endCompiler()
+	parser.emitBytes(OpConstant, makeConstant(functionVal(function)))
+}
+
+func funDeclaration() {
+	global := parseVariable("Expect function name.")
+	markInitialized()
+	function(TypeFunction)
+	defineVariable(global)
 }
 
 func varDeclaration() {
@@ -223,6 +273,20 @@ func printStatement() {
 	parser.emitByte(OpPrint)
 }
 
+func returnStatement() {
+	if current.functionType == TypeScript {
+		_error("Can't return from top-level code.")
+	}
+
+	if match(TokenSemicolon) {
+		parser.emitReturn()
+	} else {
+		expression()
+		parser.consume(TokenSemicolon, "Expect ';' after return value.")
+		parser.emitByte(OpReturn)
+	}
+}
+
 func whileStatement() {
 	loopStart := len(currentChunk().code)
 	parser.consume(TokenLeftParen, "Expect '(' after 'while'.")
@@ -262,7 +326,9 @@ func synchronize() {
 }
 
 func declaration() {
-	if match(TokenVar) {
+	if match(TokenFun) {
+		funDeclaration()
+	} else if match(TokenVar) {
 		varDeclaration()
 	} else {
 		statement()
@@ -280,6 +346,8 @@ func statement() {
 		forStatement()
 	} else if match(TokenIf) {
 		ifStatement()
+	} else if match(TokenReturn) {
+		returnStatement()
 	} else if match(TokenWhile) {
 		whileStatement()
 	} else if match(TokenLeftBrace) {
@@ -312,13 +380,24 @@ func match(tokenType TokenType) bool {
 	return true
 }
 
-func (parser *Parser) endCompiler() {
+func (parser *Parser) endCompiler() *Function {
 	parser.emitReturn()
+	function := current.function
+
 	if DebugPrintCode {
 		if !parser.hadError {
-			DisassembleChunk(currentChunk(), "code")
+			var functionName string
+			if function.name != "" {
+				functionName = function.name
+			} else {
+				functionName = "<script>"
+			}
+			disassembleChunk(currentChunk(), functionName)
 		}
 	}
+
+	current = current.enclosing
+	return function
 }
 
 func beginScope() {
@@ -418,6 +497,9 @@ func parseVariable(errorMessage string) uint8 {
 }
 
 func markInitialized() {
+	if current.scopeDepth == 0 {
+		return
+	}
 	current.locals[current.localCount-1].depth = current.scopeDepth
 }
 
@@ -427,6 +509,21 @@ func defineVariable(global uint8) {
 		return
 	}
 	parser.emitBytes(OpDefineGlobal, global)
+}
+
+func argumentList() uint8 {
+	var argCount uint8 = 0
+	if !check(TokenRightParen) {
+		for ok := true; ok; ok = match(TokenComma) {
+			expression()
+			if argCount == 255 {
+				_error("Can't have more than 255 arguments.")
+			}
+			argCount++
+		}
+	}
+	parser.consume(TokenRightParen, "Expect ')' after arguments.")
+	return argCount
 }
 
 func _and(canAssign bool) {
@@ -501,6 +598,11 @@ func binary(canAssign bool) {
 	default:
 		return // Unreachable.
 	}
+}
+
+func call(canAssign bool) {
+	argCount := argumentList()
+	parser.emitBytes(OpCall, argCount)
 }
 
 func literal(canAssign bool) {
@@ -603,6 +705,7 @@ func (parser *Parser) emitConstant(value Value) {
 }
 
 func (parser *Parser) emitReturn() {
+	parser.emitByte(OpNil)
 	parser.emitByte(OpReturn)
 }
 

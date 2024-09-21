@@ -7,4 +7,6 @@ const (
 	ValNil
 	ValNumber
 	ValString
+	ValFunction
+	ValNativeFn
 )

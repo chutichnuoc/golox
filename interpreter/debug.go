@@ -5,7 +5,7 @@ import "fmt"
 const DebugPrintCode = false
 const DebugTraceExecution = false
 
-func DisassembleChunk(chunk *Chunk, name string) {
+func disassembleChunk(chunk *Chunk, name string) {
 	fmt.Printf("== %s ==\n", name)
 	for offset := 0; offset < len(chunk.code); {
 		offset = disassembleInstruction(chunk, offset)
@@ -67,6 +67,8 @@ func disassembleInstruction(chunk *Chunk, offset int) int {
 		return jumpInstruction("OpJumpIfFalse", 1, chunk, offset)
 	case OpLoop:
 		return jumpInstruction("OpLoop", -1, chunk, offset)
+	case OpCall:
+		return byteInstruction("OpCall", chunk, offset)
 	case OpReturn:
 		return simpleInstruction("OpReturn", offset)
 	default:
