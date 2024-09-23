@@ -11,6 +11,8 @@ const (
 	OpGetGlobal
 	OpDefineGlobal
 	OpSetGlobal
+	OpGetUpvalue
+	OpSetUpvalue
 	OpEqual
 	OpGreater
 	OpLess
@@ -25,5 +27,7 @@ const (
 	OpJumpIfFalse
 	OpLoop
 	OpCall
+	OpClosure
+	OpCloseUpvalue
 	OpReturn
 )

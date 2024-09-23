@@ -1,6 +1,8 @@
 package interpreter
 
-import "fmt"
+import (
+	"fmt"
+)
 
 const DebugPrintCode = false
 const DebugTraceExecution = false
@@ -41,6 +43,10 @@ func disassembleInstruction(chunk *Chunk, offset int) int {
 		return constantInstruction("OpDefineGlobal", chunk, offset)
 	case OpSetGlobal:
 		return constantInstruction("OpSetGlobal", chunk, offset)
+	case OpGetUpvalue:
+		return byteInstruction("OpGetUpvalue", chunk, offset)
+	case OpSetUpvalue:
+		return byteInstruction("OpSetUpvalue", chunk, offset)
 	case OpEqual:
 		return simpleInstruction("OpEqual", offset)
 	case OpGreater:
@@ -69,6 +75,32 @@ func disassembleInstruction(chunk *Chunk, offset int) int {
 		return jumpInstruction("OpLoop", -1, chunk, offset)
 	case OpCall:
 		return byteInstruction("OpCall", chunk, offset)
+	case OpClosure:
+		offset++
+		constantIndex := chunk.code[offset]
+		offset++
+		fmt.Printf("%-16s %4d ", "OpClosure", constantIndex)
+		printValue(chunk.constants.values[constantIndex])
+		fmt.Println()
+
+		function := asFunction(chunk.constants.values[constantIndex])
+		for j := 0; j < function.upvalueCount; j++ {
+			isLocal := chunk.code[offset]
+			offset++
+			index := chunk.code[offset]
+			offset++
+			var valueScope string
+			if isLocal == 1 {
+				valueScope = "local"
+			} else {
+				valueScope = "upvalue"
+			}
+			fmt.Printf("%04d      |                     %s %d\n", offset-2, valueScope, index)
+		}
+
+		return offset
+	case OpCloseUpvalue:
+		return simpleInstruction("OpCloseUpvalue", offset)
 	case OpReturn:
 		return simpleInstruction("OpReturn", offset)
 	default:

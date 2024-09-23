@@ -21,8 +21,14 @@ type ParseRule struct {
 }
 
 type Local struct {
-	name  Token
-	depth int
+	name       Token
+	depth      int
+	isCaptured bool
+}
+
+type Upvalue struct {
+	index   uint8
+	isLocal bool
 }
 
 type Compiler struct {
@@ -32,6 +38,7 @@ type Compiler struct {
 
 	locals     [256]Local
 	localCount int
+	upvalues   [256]Upvalue
 	scopeDepth int
 }
 
@@ -59,6 +66,7 @@ func initCompiler(compiler *Compiler, functionType FunctionType) {
 	local := &current.locals[current.localCount]
 	current.localCount++
 	local.depth = 0
+	local.isCaptured = false
 	local.name.lexeme = ""
 }
 
@@ -173,7 +181,16 @@ func function(functionType FunctionType) {
 	block()
 
 	function := parser.endCompiler()
-	parser.emitBytes(OpConstant, makeConstant(functionVal(function)))
+	parser.emitBytes(OpClosure, makeConstant(functionVal(function)))
+
+	for i := 0; i < function.upvalueCount; i++ {
+		if compiler.upvalues[i].isLocal {
+			parser.emitByte(1)
+		} else {
+			parser.emitByte(0)
+		}
+		parser.emitByte(compiler.upvalues[i].index)
+	}
 }
 
 func funDeclaration() {
@@ -408,7 +425,11 @@ func endScope() {
 	current.scopeDepth--
 
 	for current.localCount > 0 && current.locals[current.localCount-1].depth > current.scopeDepth {
-		parser.emitByte(OpPop)
+		if current.locals[current.localCount-1].isCaptured {
+			parser.emitByte(OpCloseUpvalue)
+		} else {
+			parser.emitByte(OpPop)
+		}
 		current.localCount--
 	}
 }
@@ -456,6 +477,46 @@ func resolveLocal(compiler *Compiler, name Token) int {
 	return -1
 }
 
+func addUpvalue(compiler *Compiler, index uint8, isLocal bool) int {
+	upvalueCount := compiler.function.upvalueCount
+
+	for i := 0; i < upvalueCount; i++ {
+		upvalue := &compiler.upvalues[i]
+		if upvalue.index == index && upvalue.isLocal == isLocal {
+			return i
+		}
+	}
+
+	if upvalueCount == 256 {
+		_error("Too many closure variables in function.")
+		return 0
+	}
+
+	compiler.upvalues[upvalueCount].isLocal = isLocal
+	compiler.upvalues[upvalueCount].index = index
+	compiler.function.upvalueCount++
+	return upvalueCount
+}
+
+func resolveUpvalue(compiler *Compiler, name Token) int {
+	if compiler.enclosing == nil {
+		return -1
+	}
+
+	local := resolveLocal(compiler.enclosing, name)
+	if local != -1 {
+		compiler.enclosing.locals[local].isCaptured = true
+		return addUpvalue(compiler, uint8(local), true)
+	}
+
+	upvalue := resolveUpvalue(compiler.enclosing, name)
+	if upvalue != -1 {
+		return addUpvalue(compiler, uint8(upvalue), false)
+	}
+
+	return -1
+}
+
 func addLocal(name Token) {
 	if current.localCount == 256 {
 		_error("Too many local variables in function.")
@@ -465,7 +526,8 @@ func addLocal(name Token) {
 	local := &current.locals[current.localCount]
 	current.localCount++
 	local.name = name
-	local.depth = current.scopeDepth
+	local.depth = -1
+	local.isCaptured = false
 }
 
 func declareVariable() {
@@ -649,6 +711,9 @@ func namedVariable(name Token, canAssign bool) {
 	if arg != -1 {
 		getOp = OpGetLocal
 		setOp = OpSetLocal
+	} else if arg = resolveUpvalue(current, name); arg != -1 {
+		getOp = OpGetUpvalue
+		setOp = OpSetUpvalue
 	} else {
 		arg = int(identifierConstant(name))
 		getOp = OpGetGlobal

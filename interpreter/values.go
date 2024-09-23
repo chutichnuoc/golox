@@ -13,20 +13,49 @@ type union struct {
 	boolean  bool
 	number   float64
 	string   string
+	closure  *Closure
 	function *Function
 	nativeFn NativeFn
 }
 
+type Closure struct {
+	function     *Function
+	upvalues     []*ObjUpvalue
+	upvalueCount int
+}
+
 type Function struct {
-	arity int
-	chunk Chunk
-	name  string
+	arity        int
+	upvalueCount int
+	chunk        Chunk
+	name         string
+}
+
+type ObjUpvalue struct {
+	location *Value
+	closed   Value
+	next     *ObjUpvalue
+}
+
+func newClosure(function *Function) *Closure {
+	closure := Closure{}
+	closure.function = function
+	closure.upvalues = make([]*ObjUpvalue, 256)
+	closure.upvalueCount = function.upvalueCount
+	return &closure
 }
 
 func newFunction() *Function {
 	function := Function{}
 	function.chunk = *NewChunk()
 	return &function
+}
+
+func newUpvalue(slot *Value) *ObjUpvalue {
+	upvalue := &ObjUpvalue{}
+	upvalue.location = slot
+	upvalue.next = nil
+	return upvalue
 }
 
 func boolVal(value bool) Value {
@@ -39,6 +68,10 @@ func nilVal() Value {
 
 func numberVal(value float64) Value {
 	return Value{valueType: ValNumber, as: union{number: value}}
+}
+
+func closureVal(value *Closure) Value {
+	return Value{valueType: ValClosure, as: union{closure: value}}
 }
 
 func functionVal(value *Function) Value {
@@ -59,6 +92,10 @@ func asBool(value Value) bool {
 
 func asNumber(value Value) float64 {
 	return value.as.number
+}
+
+func asClosure(value Value) *Closure {
+	return value.as.closure
 }
 
 func asFunction(value Value) *Function {
@@ -83,6 +120,10 @@ func isNil(value Value) bool {
 
 func isNumber(value Value) bool {
 	return value.valueType == ValNumber
+}
+
+func isClosure(value Value) bool {
+	return value.valueType == ValClosure
 }
 
 func isFunction(value Value) bool {
@@ -129,6 +170,9 @@ func printValue(value Value) {
 		break
 	case ValNumber:
 		fmt.Printf("%g", asNumber(value))
+	case ValClosure:
+		printFunction(asClosure(value).function)
+		break
 	case ValFunction:
 		printFunction(asFunction(value))
 		break
@@ -138,6 +182,8 @@ func printValue(value Value) {
 	case ValString:
 		fmt.Printf("%s", asString(value))
 		break
+	case ValUpvalue:
+		fmt.Printf("upvalue")
 	}
 }
 
