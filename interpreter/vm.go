@@ -75,7 +75,11 @@ func (vm *VM) call(closure *Closure, argCount int) bool {
 }
 
 func (vm *VM) callValue(callee Value, argCount int) bool {
-	if isClosure(callee) {
+	if isClass(callee) {
+		class := asClass(callee)
+		vm.stack[vm.stackTop-argCount-1] = instanceVal(newInstance(class))
+		return true
+	} else if isClosure(callee) {
 		return vm.call(asClosure(callee), argCount)
 	} else if isNativeFn(callee) {
 		native := asNativeFn(callee)
@@ -222,6 +226,36 @@ func (vm *VM) run() InterpretResult {
 			slot := frame.readByte()
 			*frame.closure.upvalues[slot].location = vm.peek(0)
 			break
+		case OpGetProperty:
+			if !isInstance(vm.peek(0)) {
+				vm.runtimeError("Only instances have properties.")
+				return InterpretRuntimeError
+			}
+
+			instance := asInstance(vm.peek(0))
+			name := frame.readString()
+
+			value, ok := instance.fields[name]
+			if ok {
+				vm.pop() // Instance.
+				vm.push(value)
+				break
+			}
+
+			vm.runtimeError("Undefined property '%s'.", name)
+			return InterpretRuntimeError
+		case OpSetProperty:
+			if !isInstance(vm.peek(1)) {
+				vm.runtimeError("Only instances have fields.")
+				return InterpretRuntimeError
+			}
+
+			instance := asInstance(vm.peek(1))
+			instance.fields[frame.readString()] = vm.peek(0)
+			value := vm.pop()
+			vm.pop()
+			vm.push(value)
+			break
 		case OpEqual:
 			b := vm.pop()
 			a := vm.pop()
@@ -351,6 +385,9 @@ func (vm *VM) run() InterpretResult {
 			vm.stackTop = len(vm.stack) - len(frame.slots)
 			vm.push(result)
 			frame = &vm.frames[vm.frameCount-1]
+			break
+		case OpClass:
+			vm.push(classVal(newClass(frame.readString())))
 			break
 		}
 	}

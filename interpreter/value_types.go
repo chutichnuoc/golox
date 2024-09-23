@@ -7,6 +7,8 @@ const (
 	ValNil
 	ValNumber
 	ValString
+	ValClass
+	ValInstance
 	ValClosure
 	ValFunction
 	ValUpvalue

@@ -81,7 +81,7 @@ func compile(source string) *Function {
 		TokenLeftBrace:    {nil, nil, PrecNone},
 		TokenRightBrace:   {nil, nil, PrecNone},
 		TokenComma:        {nil, nil, PrecNone},
-		TokenDot:          {nil, nil, PrecNone},
+		TokenDot:          {nil, dot, PrecCall},
 		TokenMinus:        {unary, binary, PrecTerm},
 		TokenPlus:         {nil, binary, PrecTerm},
 		TokenSemicolon:    {nil, nil, PrecNone},
@@ -158,6 +158,18 @@ func block() {
 	}
 
 	parser.consume(TokenRightBrace, "Expect '}' after block.")
+}
+
+func classDeclaration() {
+	parser.consume(TokenIdentifier, "Expect class name.")
+	nameConstant := identifierConstant(parser.previous)
+	declareVariable()
+
+	parser.emitBytes(OpClass, nameConstant)
+	defineVariable(nameConstant)
+
+	parser.consume(TokenLeftBrace, "Expect '{' before class body.")
+	parser.consume(TokenRightBrace, "Expect '}' after class body.")
 }
 
 func function(functionType FunctionType) {
@@ -343,7 +355,9 @@ func synchronize() {
 }
 
 func declaration() {
-	if match(TokenFun) {
+	if match(TokenClass) {
+		classDeclaration()
+	} else if match(TokenFun) {
 		funDeclaration()
 	} else if match(TokenVar) {
 		varDeclaration()
@@ -665,6 +679,18 @@ func binary(canAssign bool) {
 func call(canAssign bool) {
 	argCount := argumentList()
 	parser.emitBytes(OpCall, argCount)
+}
+
+func dot(canAssign bool) {
+	parser.consume(TokenIdentifier, "Expect property name after '.'.")
+	name := identifierConstant(parser.previous)
+
+	if canAssign && match(TokenEqual) {
+		expression()
+		parser.emitBytes(OpSetProperty, name)
+	} else {
+		parser.emitBytes(OpGetProperty, name)
+	}
 }
 
 func literal(canAssign bool) {

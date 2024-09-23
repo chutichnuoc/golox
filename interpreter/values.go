@@ -15,6 +15,8 @@ type union struct {
 	string   string
 	closure  *Closure
 	function *Function
+	class    *Class
+	instance *Instance
 	nativeFn NativeFn
 }
 
@@ -22,6 +24,15 @@ type Closure struct {
 	function     *Function
 	upvalues     []*ObjUpvalue
 	upvalueCount int
+}
+
+type Class struct {
+	name string
+}
+
+type Instance struct {
+	class  *Class
+	fields map[string]Value
 }
 
 type Function struct {
@@ -45,10 +56,23 @@ func newClosure(function *Function) *Closure {
 	return &closure
 }
 
+func newClass(name string) *Class {
+	class := &Class{}
+	class.name = name
+	return class
+}
+
 func newFunction() *Function {
 	function := Function{}
 	function.chunk = *NewChunk()
 	return &function
+}
+
+func newInstance(class *Class) *Instance {
+	instance := &Instance{}
+	instance.class = class
+	instance.fields = make(map[string]Value)
+	return instance
 }
 
 func newUpvalue(slot *Value) *ObjUpvalue {
@@ -74,6 +98,14 @@ func closureVal(value *Closure) Value {
 	return Value{valueType: ValClosure, as: union{closure: value}}
 }
 
+func instanceVal(value *Instance) Value {
+	return Value{valueType: ValInstance, as: union{instance: value}}
+}
+
+func classVal(value *Class) Value {
+	return Value{valueType: ValClass, as: union{class: value}}
+}
+
 func functionVal(value *Function) Value {
 	return Value{valueType: ValFunction, as: union{function: value}}
 }
@@ -96,6 +128,14 @@ func asNumber(value Value) float64 {
 
 func asClosure(value Value) *Closure {
 	return value.as.closure
+}
+
+func asInstance(value Value) *Instance {
+	return value.as.instance
+}
+
+func asClass(value Value) *Class {
+	return value.as.class
 }
 
 func asFunction(value Value) *Function {
@@ -124,6 +164,14 @@ func isNumber(value Value) bool {
 
 func isClosure(value Value) bool {
 	return value.valueType == ValClosure
+}
+
+func isInstance(value Value) bool {
+	return value.valueType == ValInstance
+}
+
+func isClass(value Value) bool {
+	return value.valueType == ValClass
 }
 
 func isFunction(value Value) bool {
@@ -170,11 +218,18 @@ func printValue(value Value) {
 		break
 	case ValNumber:
 		fmt.Printf("%g", asNumber(value))
+		break
 	case ValClosure:
 		printFunction(asClosure(value).function)
 		break
+	case ValClass:
+		fmt.Printf("%s", asClass(value).name)
+		break
 	case ValFunction:
 		printFunction(asFunction(value))
+		break
+	case ValInstance:
+		fmt.Printf("%s instance", asInstance(value).class.name)
 		break
 	case ValNativeFn:
 		fmt.Printf("<native fn>")

@@ -13,6 +13,8 @@ const (
 	OpSetGlobal
 	OpGetUpvalue
 	OpSetUpvalue
+	OpGetProperty
+	OpSetProperty
 	OpEqual
 	OpGreater
 	OpLess
@@ -30,4 +32,5 @@ const (
 	OpClosure
 	OpCloseUpvalue
 	OpReturn
+	OpClass
 )

@@ -47,6 +47,10 @@ func disassembleInstruction(chunk *Chunk, offset int) int {
 		return byteInstruction("OpGetUpvalue", chunk, offset)
 	case OpSetUpvalue:
 		return byteInstruction("OpSetUpvalue", chunk, offset)
+	case OpGetProperty:
+		return constantInstruction("OpGetProperty", chunk, offset)
+	case OpSetProperty:
+		return constantInstruction("OpSetProperty", chunk, offset)
 	case OpEqual:
 		return simpleInstruction("OpEqual", offset)
 	case OpGreater:
@@ -103,6 +107,8 @@ func disassembleInstruction(chunk *Chunk, offset int) int {
 		return simpleInstruction("OpCloseUpvalue", offset)
 	case OpReturn:
 		return simpleInstruction("OpReturn", offset)
+	case OpClass:
+		return constantInstruction("OpClass", chunk, offset)
 	default:
 		fmt.Printf("Unknown opcode %d\n", instruction)
 		return offset + 1
