@@ -317,6 +317,14 @@ func (vm *VM) run() InterpretResult {
 			vm.pop()
 			vm.push(value)
 			break
+		case OpGetSuper:
+			name := frame.readString()
+			superclass := asClass(vm.pop())
+
+			if !vm.bindMethod(superclass, name) {
+				return InterpretRuntimeError
+			}
+			break
 		case OpEqual:
 			b := vm.pop()
 			a := vm.pop()
@@ -416,6 +424,23 @@ func (vm *VM) run() InterpretResult {
 			}
 			frame = &vm.frames[vm.frameCount-1]
 			break
+		case OpInvoke:
+			classMethod := frame.readString()
+			argCount := int(frame.readByte())
+			if !vm.invoke(classMethod, argCount) {
+				return InterpretRuntimeError
+			}
+			frame = &vm.frames[vm.frameCount-1]
+			break
+		case OpSuperInvoke:
+			superMethod := frame.readString()
+			argCount := int(frame.readByte())
+			superclass := asClass(vm.pop())
+			if !vm.invokeFromClass(superclass, superMethod, argCount) {
+				return InterpretRuntimeError
+			}
+			frame = &vm.frames[vm.frameCount-1]
+			break
 		case OpClosure:
 			function := asFunction(frame.readConstant())
 			closure := newClosure(function)
@@ -429,14 +454,6 @@ func (vm *VM) run() InterpretResult {
 					closure.upvalues[i] = frame.closure.upvalues[index]
 				}
 			}
-			break
-		case OpInvoke:
-			classMethod := frame.readString()
-			argCount := int(frame.readByte())
-			if !vm.invoke(classMethod, argCount) {
-				return InterpretRuntimeError
-			}
-			frame = &vm.frames[vm.frameCount-1]
 			break
 		case OpCloseUpvalue:
 			vm.closeUpvalues(&vm.stack[vm.stackTop])
@@ -457,6 +474,18 @@ func (vm *VM) run() InterpretResult {
 			break
 		case OpClass:
 			vm.push(classVal(newClass(frame.readString())))
+			break
+		case OpInherit:
+			superclass := vm.peek(1)
+			if !isClass(superclass) {
+				vm.runtimeError("Superclass must be a class.")
+				return InterpretRuntimeError
+			}
+			subclass := asClass(vm.peek(0))
+			for key, value := range asClass(superclass).methods {
+				subclass.methods[key] = value
+			}
+			vm.pop() // Subclass.
 			break
 		case OpMethod:
 			vm.defineMethod(frame.readString())

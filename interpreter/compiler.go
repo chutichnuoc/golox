@@ -43,7 +43,8 @@ type Compiler struct {
 }
 
 type ClassCompiler struct {
-	enclosing *ClassCompiler
+	enclosing     *ClassCompiler
+	hasSuperclass bool
 }
 
 var rules []ParseRule
@@ -118,7 +119,7 @@ func compile(source string) *Function {
 		TokenOr:           {nil, _or, PrecOr},
 		TokenPrint:        {nil, nil, PrecNone},
 		TokenReturn:       {nil, nil, PrecNone},
-		TokenSuper:        {nil, nil, PrecNone},
+		TokenSuper:        {super, nil, PrecNone},
 		TokenThis:         {this, nil, PrecNone},
 		TokenTrue:         {literal, nil, PrecNone},
 		TokenVar:          {nil, nil, PrecNone},
@@ -179,8 +180,26 @@ func classDeclaration() {
 	defineVariable(nameConstant)
 
 	classCompiler := ClassCompiler{}
+	classCompiler.hasSuperclass = false
 	classCompiler.enclosing = currentClass
 	currentClass = &classCompiler
+
+	if match(TokenLess) {
+		parser.consume(TokenIdentifier, "Expect superclass name.")
+		variable(false)
+
+		if identifiersEqual(className, parser.previous) {
+			_error("A class can't inherit from itself.")
+		}
+
+		beginScope()
+		addLocal(syntheticToken("super"))
+		defineVariable(0)
+
+		namedVariable(className, false)
+		parser.emitByte(OpInherit)
+		classCompiler.hasSuperclass = true
+	}
 
 	namedVariable(className, false)
 	parser.consume(TokenLeftBrace, "Expect '{' before class body.")
@@ -189,6 +208,10 @@ func classDeclaration() {
 	}
 	parser.consume(TokenRightBrace, "Expect '}' after class body.")
 	parser.emitByte(OpPop)
+
+	if classCompiler.hasSuperclass {
+		endScope()
+	}
 
 	currentClass = currentClass.enclosing
 }
@@ -797,6 +820,35 @@ func namedVariable(name Token, canAssign bool) {
 
 func variable(canAssign bool) {
 	namedVariable(parser.previous, canAssign)
+}
+
+func syntheticToken(text string) Token {
+	token := Token{}
+	token.lexeme = text
+	return token
+}
+
+func super(canAssign bool) {
+	if currentClass == nil {
+		_error("Can't use 'super' outside of a class.")
+	} else if !currentClass.hasSuperclass {
+		_error("Can't use 'super' in a class with no superclass.")
+	}
+
+	parser.consume(TokenDot, "Expect '.' after 'super'.")
+	parser.consume(TokenIdentifier, "Expect superclass method name.")
+	name := identifierConstant(parser.previous)
+
+	namedVariable(syntheticToken("this"), false)
+	if match(TokenLeftParen) {
+		argCount := argumentList()
+		namedVariable(syntheticToken("super"), false)
+		parser.emitBytes(OpSuperInvoke, name)
+		parser.emitByte(argCount)
+	} else {
+		namedVariable(syntheticToken("super"), false)
+		parser.emitBytes(OpGetSuper, name)
+	}
 }
 
 func this(canAssign bool) {

@@ -15,6 +15,7 @@ const (
 	OpSetUpvalue
 	OpGetProperty
 	OpSetProperty
+	OpGetSuper
 	OpEqual
 	OpGreater
 	OpLess
@@ -30,9 +31,11 @@ const (
 	OpLoop
 	OpCall
 	OpInvoke
+	OpSuperInvoke
 	OpClosure
 	OpCloseUpvalue
 	OpReturn
 	OpClass
+	OpInherit
 	OpMethod
 )
