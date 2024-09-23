@@ -3,6 +3,8 @@ package interpreter
 type FunctionType int
 
 const (
-	TypeFunction = iota
+	TypeFunction FunctionType = iota
+	TypeInitializer
+	TypeMethod
 	TypeScript
 )

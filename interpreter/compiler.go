@@ -42,11 +42,16 @@ type Compiler struct {
 	scopeDepth int
 }
 
+type ClassCompiler struct {
+	enclosing *ClassCompiler
+}
+
 var rules []ParseRule
 
 var scanner *Scanner
 var parser = Parser{hadError: false, panicMode: false}
 var current *Compiler
+var currentClass *ClassCompiler
 
 func currentChunk() *Chunk {
 	return &current.function.chunk
@@ -67,7 +72,11 @@ func initCompiler(compiler *Compiler, functionType FunctionType) {
 	current.localCount++
 	local.depth = 0
 	local.isCaptured = false
-	local.name.lexeme = ""
+	if functionType != TypeFunction {
+		local.name.lexeme = "this"
+	} else {
+		local.name.lexeme = ""
+	}
 }
 
 func getRule(tokeType TokenType) ParseRule {
@@ -110,7 +119,7 @@ func compile(source string) *Function {
 		TokenPrint:        {nil, nil, PrecNone},
 		TokenReturn:       {nil, nil, PrecNone},
 		TokenSuper:        {nil, nil, PrecNone},
-		TokenThis:         {nil, nil, PrecNone},
+		TokenThis:         {this, nil, PrecNone},
 		TokenTrue:         {literal, nil, PrecNone},
 		TokenVar:          {nil, nil, PrecNone},
 		TokenWhile:        {nil, nil, PrecNone},
@@ -162,14 +171,38 @@ func block() {
 
 func classDeclaration() {
 	parser.consume(TokenIdentifier, "Expect class name.")
+	className := parser.previous
 	nameConstant := identifierConstant(parser.previous)
 	declareVariable()
 
 	parser.emitBytes(OpClass, nameConstant)
 	defineVariable(nameConstant)
 
+	classCompiler := ClassCompiler{}
+	classCompiler.enclosing = currentClass
+	currentClass = &classCompiler
+
+	namedVariable(className, false)
 	parser.consume(TokenLeftBrace, "Expect '{' before class body.")
+	for !check(TokenRightBrace) && !check(TokenEof) {
+		method()
+	}
 	parser.consume(TokenRightBrace, "Expect '}' after class body.")
+	parser.emitByte(OpPop)
+
+	currentClass = currentClass.enclosing
+}
+
+func method() {
+	parser.consume(TokenIdentifier, "Expect method name.")
+	constant := identifierConstant(parser.previous)
+
+	functionType := TypeMethod
+	if parser.previous.lexeme == "init" {
+		functionType = TypeInitializer
+	}
+	function(functionType)
+	parser.emitBytes(OpMethod, constant)
 }
 
 func function(functionType FunctionType) {
@@ -310,6 +343,10 @@ func returnStatement() {
 	if match(TokenSemicolon) {
 		parser.emitReturn()
 	} else {
+		if current.functionType == TypeInitializer {
+			_error("Can't return a value from an initializer.")
+		}
+
 		expression()
 		parser.consume(TokenSemicolon, "Expect ';' after return value.")
 		parser.emitByte(OpReturn)
@@ -688,6 +725,10 @@ func dot(canAssign bool) {
 	if canAssign && match(TokenEqual) {
 		expression()
 		parser.emitBytes(OpSetProperty, name)
+	} else if match(TokenLeftParen) {
+		argCount := argumentList()
+		parser.emitBytes(OpInvoke, name)
+		parser.emitByte(argCount)
 	} else {
 		parser.emitBytes(OpGetProperty, name)
 	}
@@ -758,6 +799,15 @@ func variable(canAssign bool) {
 	namedVariable(parser.previous, canAssign)
 }
 
+func this(canAssign bool) {
+	if currentClass == nil {
+		_error("Can't use 'this' outside of a class.")
+		return
+	}
+
+	variable(false)
+}
+
 func makeConstant(value Value) uint8 {
 	constant := currentChunk().AddConstant(value)
 	if constant > 255 {
@@ -796,7 +846,12 @@ func (parser *Parser) emitConstant(value Value) {
 }
 
 func (parser *Parser) emitReturn() {
-	parser.emitByte(OpNil)
+	if current.functionType == TypeInitializer {
+		parser.emitBytes(OpGetLocal, 0)
+	} else {
+		parser.emitByte(OpNil)
+	}
+
 	parser.emitByte(OpReturn)
 }
 

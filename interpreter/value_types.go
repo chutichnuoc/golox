@@ -7,6 +7,7 @@ const (
 	ValNil
 	ValNumber
 	ValString
+	ValBoundMethod
 	ValClass
 	ValInstance
 	ValClosure

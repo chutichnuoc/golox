@@ -79,6 +79,8 @@ func disassembleInstruction(chunk *Chunk, offset int) int {
 		return jumpInstruction("OpLoop", -1, chunk, offset)
 	case OpCall:
 		return byteInstruction("OpCall", chunk, offset)
+	case OpInvoke:
+		return invokeInstruction("OpInvoke", chunk, offset)
 	case OpClosure:
 		offset++
 		constantIndex := chunk.code[offset]
@@ -109,6 +111,8 @@ func disassembleInstruction(chunk *Chunk, offset int) int {
 		return simpleInstruction("OpReturn", offset)
 	case OpClass:
 		return constantInstruction("OpClass", chunk, offset)
+	case OpMethod:
+		return constantInstruction("OpMethod", chunk, offset)
 	default:
 		fmt.Printf("Unknown opcode %d\n", instruction)
 		return offset + 1
@@ -121,6 +125,15 @@ func constantInstruction(name string, chunk *Chunk, offset int) int {
 	printValue(chunk.constants.values[constant])
 	fmt.Println()
 	return offset + 2
+}
+
+func invokeInstruction(name string, chunk *Chunk, offset int) int {
+	constant := chunk.code[offset+1]
+	argCount := chunk.code[offset+2]
+	fmt.Printf("%-16s (%d args) %4d '", name, argCount, constant)
+	printValue(chunk.constants.values[constant])
+	fmt.Println()
+	return offset + 3
 }
 
 func simpleInstruction(name string, offset int) int {

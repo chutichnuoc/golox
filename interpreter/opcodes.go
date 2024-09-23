@@ -29,8 +29,10 @@ const (
 	OpJumpIfFalse
 	OpLoop
 	OpCall
+	OpInvoke
 	OpClosure
 	OpCloseUpvalue
 	OpReturn
 	OpClass
+	OpMethod
 )

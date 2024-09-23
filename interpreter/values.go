@@ -10,14 +10,15 @@ type Value struct {
 }
 
 type union struct {
-	boolean  bool
-	number   float64
-	string   string
-	closure  *Closure
-	function *Function
-	class    *Class
-	instance *Instance
-	nativeFn NativeFn
+	boolean     bool
+	number      float64
+	string      string
+	closure     *Closure
+	function    *Function
+	boundMethod *BoundMethod
+	class       *Class
+	instance    *Instance
+	nativeFn    NativeFn
 }
 
 type Closure struct {
@@ -27,12 +28,18 @@ type Closure struct {
 }
 
 type Class struct {
-	name string
+	name    string
+	methods map[string]Value
 }
 
 type Instance struct {
 	class  *Class
 	fields map[string]Value
+}
+
+type BoundMethod struct {
+	receiver Value
+	method   *Closure
 }
 
 type Function struct {
@@ -56,9 +63,17 @@ func newClosure(function *Function) *Closure {
 	return &closure
 }
 
+func newBoundMethod(receiver Value, method *Closure) *BoundMethod {
+	boundMethod := &BoundMethod{}
+	boundMethod.receiver = receiver
+	boundMethod.method = method
+	return boundMethod
+}
+
 func newClass(name string) *Class {
 	class := &Class{}
 	class.name = name
+	class.methods = make(map[string]Value)
 	return class
 }
 
@@ -98,6 +113,10 @@ func closureVal(value *Closure) Value {
 	return Value{valueType: ValClosure, as: union{closure: value}}
 }
 
+func boundMethodVal(value *BoundMethod) Value {
+	return Value{valueType: ValBoundMethod, as: union{boundMethod: value}}
+}
+
 func instanceVal(value *Instance) Value {
 	return Value{valueType: ValInstance, as: union{instance: value}}
 }
@@ -134,6 +153,10 @@ func asInstance(value Value) *Instance {
 	return value.as.instance
 }
 
+func asBoundMethod(value Value) *BoundMethod {
+	return value.as.boundMethod
+}
+
 func asClass(value Value) *Class {
 	return value.as.class
 }
@@ -168,6 +191,10 @@ func isClosure(value Value) bool {
 
 func isInstance(value Value) bool {
 	return value.valueType == ValInstance
+}
+
+func isBoundMethod(value Value) bool {
+	return value.valueType == ValBoundMethod
 }
 
 func isClass(value Value) bool {
@@ -221,6 +248,9 @@ func printValue(value Value) {
 		break
 	case ValClosure:
 		printFunction(asClosure(value).function)
+		break
+	case ValBoundMethod:
+		printFunction(asBoundMethod(value).method.function)
 		break
 	case ValClass:
 		fmt.Printf("%s", asClass(value).name)

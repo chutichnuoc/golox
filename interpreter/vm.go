@@ -75,9 +75,20 @@ func (vm *VM) call(closure *Closure, argCount int) bool {
 }
 
 func (vm *VM) callValue(callee Value, argCount int) bool {
-	if isClass(callee) {
+	if isBoundMethod(callee) {
+		bound := asBoundMethod(callee)
+		vm.stack[vm.stackTop-argCount-1] = bound.receiver
+		return vm.call(bound.method, argCount)
+	} else if isClass(callee) {
 		class := asClass(callee)
 		vm.stack[vm.stackTop-argCount-1] = instanceVal(newInstance(class))
+		initializer, ok := class.methods["init"]
+		if ok {
+			return vm.call(asClosure(initializer), argCount)
+		} else if argCount != 0 {
+			vm.runtimeError("Expected 0 arguments but got %d.", argCount)
+			return false
+		}
 		return true
 	} else if isClosure(callee) {
 		return vm.call(asClosure(callee), argCount)
@@ -90,6 +101,47 @@ func (vm *VM) callValue(callee Value, argCount int) bool {
 	}
 	vm.runtimeError("Can only call functions and classes.")
 	return false
+}
+
+func (vm *VM) invokeFromClass(class *Class, name string, argCount int) bool {
+	classMethod, ok := class.methods[name]
+	if !ok {
+		vm.runtimeError("Undefined property '%s'.", name)
+		return false
+	}
+	return vm.call(asClosure(classMethod), argCount)
+}
+
+func (vm *VM) invoke(name string, argCount int) bool {
+	receiver := vm.peek(argCount)
+
+	if !isInstance(receiver) {
+		vm.runtimeError("Only instances have methods..")
+		return false
+	}
+
+	instance := asInstance(receiver)
+
+	value, ok := instance.fields[name]
+	if ok {
+		vm.stack[vm.stackTop-argCount-1] = value
+		return vm.callValue(value, argCount)
+	}
+
+	return vm.invokeFromClass(instance.class, name, argCount)
+}
+
+func (vm *VM) bindMethod(class *Class, name string) bool {
+	classMethod, ok := class.methods[name]
+	if !ok {
+		vm.runtimeError("Undefined property '%s'.", name)
+		return false
+	}
+
+	bound := newBoundMethod(vm.peek(0), asClosure(classMethod))
+	vm.pop()
+	vm.push(boundMethodVal(bound))
+	return true
 }
 
 func (vm *VM) captureUpvalue(local *Value) *ObjUpvalue {
@@ -131,6 +183,13 @@ func (vm *VM) findStackIndex(value *Value) int {
 		}
 	}
 	return -1
+}
+
+func (vm *VM) defineMethod(name string) {
+	classMethod := vm.peek(0)
+	class := asClass(vm.peek(1))
+	class.methods[name] = classMethod
+	vm.pop()
 }
 
 func (frame *CallFrame) readByte() uint8 {
@@ -242,8 +301,10 @@ func (vm *VM) run() InterpretResult {
 				break
 			}
 
-			vm.runtimeError("Undefined property '%s'.", name)
-			return InterpretRuntimeError
+			if !vm.bindMethod(instance.class, name) {
+				return InterpretRuntimeError
+			}
+			break
 		case OpSetProperty:
 			if !isInstance(vm.peek(1)) {
 				vm.runtimeError("Only instances have fields.")
@@ -369,6 +430,14 @@ func (vm *VM) run() InterpretResult {
 				}
 			}
 			break
+		case OpInvoke:
+			classMethod := frame.readString()
+			argCount := int(frame.readByte())
+			if !vm.invoke(classMethod, argCount) {
+				return InterpretRuntimeError
+			}
+			frame = &vm.frames[vm.frameCount-1]
+			break
 		case OpCloseUpvalue:
 			vm.closeUpvalues(&vm.stack[vm.stackTop])
 			vm.pop()
@@ -388,6 +457,9 @@ func (vm *VM) run() InterpretResult {
 			break
 		case OpClass:
 			vm.push(classVal(newClass(frame.readString())))
+			break
+		case OpMethod:
+			vm.defineMethod(frame.readString())
 			break
 		}
 	}
