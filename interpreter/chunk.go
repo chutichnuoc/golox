@@ -6,7 +6,7 @@ type Chunk struct {
 	constants *ValueArray
 }
 
-func NewChunk() *Chunk {
+func newChunk() *Chunk {
 	chunk := &Chunk{}
 	chunk.code = make([]uint8, 0)
 	chunk.lines = make([]int, 0)
@@ -14,18 +14,18 @@ func NewChunk() *Chunk {
 	return chunk
 }
 
-func (chunk *Chunk) Free() {
+func (chunk *Chunk) free() {
 	chunk.code = make([]uint8, 0)
 	chunk.lines = make([]int, 0)
 	chunk.constants.free()
 }
 
-func (chunk *Chunk) Write(byte uint8, line int) {
+func (chunk *Chunk) write(byte uint8, line int) {
 	chunk.code = append(chunk.code, byte)
 	chunk.lines = append(chunk.lines, line)
 }
 
-func (chunk *Chunk) AddConstant(value Value) uint8 {
+func (chunk *Chunk) addConstant(value Value) uint8 {
 	chunk.constants.write(value)
 	return uint8(len(chunk.constants.values) - 1)
 }

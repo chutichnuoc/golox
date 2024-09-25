@@ -1,10 +1,10 @@
 package interpreter
 
-type TokenType float64
+type TokenType int
 
 const (
 	// Single-character tokens.
-	TokenLeftParen = iota
+	TokenLeftParen TokenType = iota
 	TokenRightParen
 	TokenLeftBrace
 	TokenRightBrace

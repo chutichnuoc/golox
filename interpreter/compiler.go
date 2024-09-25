@@ -7,6 +7,12 @@ import (
 
 type ParseFn func(canAssign bool)
 
+type ParseRule struct {
+	prefix     ParseFn
+	infix      ParseFn
+	precedence Precedence
+}
+
 type Parser struct {
 	current   Token
 	previous  Token
@@ -14,21 +20,10 @@ type Parser struct {
 	panicMode bool
 }
 
-type ParseRule struct {
-	prefix     ParseFn
-	infix      ParseFn
-	precedence Precedence
-}
-
 type Local struct {
 	name       Token
 	depth      int
 	isCaptured bool
-}
-
-type Upvalue struct {
-	index   uint8
-	isLocal bool
 }
 
 type Compiler struct {
@@ -38,7 +33,10 @@ type Compiler struct {
 
 	locals     [256]Local
 	localCount int
-	upvalues   [256]Upvalue
+	upvalues   [256]struct {
+		index   uint8
+		isLocal bool
+	}
 	scopeDepth int
 }
 
@@ -48,7 +46,6 @@ type ClassCompiler struct {
 }
 
 var rules []ParseRule
-
 var scanner *Scanner
 var parser = Parser{hadError: false, panicMode: false}
 var current *Compiler
@@ -56,6 +53,55 @@ var currentClass *ClassCompiler
 
 func currentChunk() *Chunk {
 	return &current.function.chunk
+}
+
+func getRule(tokeType TokenType) ParseRule {
+	return rules[tokeType]
+}
+
+func initRules() {
+	rules = []ParseRule{
+		TokenLeftParen:    {grouping, call, PrecCall},
+		TokenRightParen:   {nil, nil, PrecNone},
+		TokenLeftBrace:    {nil, nil, PrecNone},
+		TokenRightBrace:   {nil, nil, PrecNone},
+		TokenComma:        {nil, nil, PrecNone},
+		TokenDot:          {nil, dot, PrecCall},
+		TokenMinus:        {unary, binary, PrecTerm},
+		TokenPlus:         {nil, binary, PrecTerm},
+		TokenSemicolon:    {nil, nil, PrecNone},
+		TokenSlash:        {nil, binary, PrecFactor},
+		TokenStar:         {nil, binary, PrecFactor},
+		TokenBang:         {unary, nil, PrecNone},
+		TokenBangEqual:    {nil, binary, PrecEquality},
+		TokenEqual:        {nil, nil, PrecNone},
+		TokenEqualEqual:   {nil, binary, PrecEquality},
+		TokenGreater:      {nil, binary, PrecComparison},
+		TokenGreaterEqual: {nil, binary, PrecComparison},
+		TokenLess:         {nil, binary, PrecComparison},
+		TokenLessEqual:    {nil, binary, PrecComparison},
+		TokenIdentifier:   {variable, nil, PrecNone},
+		TokenString:       {_string, nil, PrecNone},
+		TokenNumber:       {number, nil, PrecNone},
+		TokenAnd:          {nil, and, PrecAnd},
+		TokenClass:        {nil, nil, PrecNone},
+		TokenElse:         {nil, nil, PrecNone},
+		TokenFalse:        {literal, nil, PrecNone},
+		TokenFor:          {nil, nil, PrecNone},
+		TokenFun:          {nil, nil, PrecNone},
+		TokenIf:           {nil, nil, PrecNone},
+		TokenNil:          {literal, nil, PrecNone},
+		TokenOr:           {nil, or, PrecOr},
+		TokenPrint:        {nil, nil, PrecNone},
+		TokenReturn:       {nil, nil, PrecNone},
+		TokenSuper:        {super, nil, PrecNone},
+		TokenThis:         {this, nil, PrecNone},
+		TokenTrue:         {literal, nil, PrecNone},
+		TokenVar:          {nil, nil, PrecNone},
+		TokenWhile:        {nil, nil, PrecNone},
+		TokenError:        {nil, nil, PrecNone},
+		TokenEof:          {nil, nil, PrecNone},
+	}
 }
 
 func initCompiler(compiler *Compiler, functionType FunctionType) {
@@ -80,65 +126,20 @@ func initCompiler(compiler *Compiler, functionType FunctionType) {
 	}
 }
 
-func getRule(tokeType TokenType) ParseRule {
-	return rules[int(tokeType)]
-}
-
 func compile(source string) *Function {
-	rules = []ParseRule{
-		TokenLeftParen:    {grouping, call, PrecCall},
-		TokenRightParen:   {nil, nil, PrecNone},
-		TokenLeftBrace:    {nil, nil, PrecNone},
-		TokenRightBrace:   {nil, nil, PrecNone},
-		TokenComma:        {nil, nil, PrecNone},
-		TokenDot:          {nil, dot, PrecCall},
-		TokenMinus:        {unary, binary, PrecTerm},
-		TokenPlus:         {nil, binary, PrecTerm},
-		TokenSemicolon:    {nil, nil, PrecNone},
-		TokenSlash:        {nil, binary, PrecFactor},
-		TokenStar:         {nil, binary, PrecFactor},
-		TokenBang:         {unary, nil, PrecNone},
-		TokenBangEqual:    {nil, binary, PrecEquality},
-		TokenEqual:        {nil, nil, PrecNone},
-		TokenEqualEqual:   {nil, binary, PrecEquality},
-		TokenGreater:      {nil, binary, PrecComparison},
-		TokenGreaterEqual: {nil, binary, PrecComparison},
-		TokenLess:         {nil, binary, PrecComparison},
-		TokenLessEqual:    {nil, binary, PrecComparison},
-		TokenIdentifier:   {variable, nil, PrecNone},
-		TokenString:       {_string, nil, PrecNone},
-		TokenNumber:       {number, nil, PrecNone},
-		TokenAnd:          {nil, _and, PrecAnd},
-		TokenClass:        {nil, nil, PrecNone},
-		TokenElse:         {nil, nil, PrecNone},
-		TokenFalse:        {literal, nil, PrecNone},
-		TokenFor:          {nil, nil, PrecNone},
-		TokenFun:          {nil, nil, PrecNone},
-		TokenIf:           {nil, nil, PrecNone},
-		TokenNil:          {literal, nil, PrecNone},
-		TokenOr:           {nil, _or, PrecOr},
-		TokenPrint:        {nil, nil, PrecNone},
-		TokenReturn:       {nil, nil, PrecNone},
-		TokenSuper:        {super, nil, PrecNone},
-		TokenThis:         {this, nil, PrecNone},
-		TokenTrue:         {literal, nil, PrecNone},
-		TokenVar:          {nil, nil, PrecNone},
-		TokenWhile:        {nil, nil, PrecNone},
-		TokenError:        {nil, nil, PrecNone},
-		TokenEof:          {nil, nil, PrecNone},
-	}
+	initRules()
 
 	scanner = initScanner(source)
 	var compiler Compiler
 	initCompiler(&compiler, TypeScript)
 
-	parser.advance()
+	advance()
 
 	for !match(TokenEof) {
 		declaration()
 	}
 
-	function := parser.endCompiler()
+	function := endCompiler()
 	if parser.hadError {
 		return nil
 	} else {
@@ -146,7 +147,49 @@ func compile(source string) *Function {
 	}
 }
 
-func (parser *Parser) advance() {
+func endCompiler() *Function {
+	emitReturn()
+	function := current.function
+
+	if DebugPrintCode {
+		if !parser.hadError {
+			var functionName string
+			if function.name != "" {
+				functionName = function.name
+			} else {
+				functionName = "<script>"
+			}
+			disassembleChunk(currentChunk(), functionName)
+		}
+	}
+
+	current = current.enclosing
+	return function
+}
+
+func parsePrecedence(precedence Precedence) {
+	advance()
+	prefixRule := getRule(parser.previous.tokenType).prefix
+	if prefixRule == nil {
+		_error("Expect expression.")
+		return
+	}
+
+	canAssign := precedence <= PrecAssignment
+	prefixRule(canAssign)
+
+	for precedence <= getRule(parser.current.tokenType).precedence {
+		advance()
+		infixRule := getRule(parser.previous.tokenType).infix
+		infixRule(canAssign)
+	}
+
+	if canAssign && match(TokenEqual) {
+		_error("Invalid assignment target.")
+	}
+}
+
+func advance() {
 	parser.previous = parser.current
 
 	for {
@@ -158,260 +201,25 @@ func (parser *Parser) advance() {
 	}
 }
 
-func expression() {
-	parsePrecedence(PrecAssignment)
+func consume(tokenType TokenType, message string) {
+	if parser.current.tokenType == tokenType {
+		advance()
+		return
+	}
+
+	errorAtCurrent(message)
 }
 
-func block() {
-	for !check(TokenRightBrace) && !check(TokenEof) {
-		declaration()
-	}
-
-	parser.consume(TokenRightBrace, "Expect '}' after block.")
+func check(tokenType TokenType) bool {
+	return parser.current.tokenType == tokenType
 }
 
-func classDeclaration() {
-	parser.consume(TokenIdentifier, "Expect class name.")
-	className := parser.previous
-	nameConstant := identifierConstant(parser.previous)
-	declareVariable()
-
-	parser.emitBytes(OpClass, nameConstant)
-	defineVariable(nameConstant)
-
-	classCompiler := ClassCompiler{}
-	classCompiler.hasSuperclass = false
-	classCompiler.enclosing = currentClass
-	currentClass = &classCompiler
-
-	if match(TokenLess) {
-		parser.consume(TokenIdentifier, "Expect superclass name.")
-		variable(false)
-
-		if identifiersEqual(className, parser.previous) {
-			_error("A class can't inherit from itself.")
-		}
-
-		beginScope()
-		addLocal(syntheticToken("super"))
-		defineVariable(0)
-
-		namedVariable(className, false)
-		parser.emitByte(OpInherit)
-		classCompiler.hasSuperclass = true
+func match(tokenType TokenType) bool {
+	if !check(tokenType) {
+		return false
 	}
-
-	namedVariable(className, false)
-	parser.consume(TokenLeftBrace, "Expect '{' before class body.")
-	for !check(TokenRightBrace) && !check(TokenEof) {
-		method()
-	}
-	parser.consume(TokenRightBrace, "Expect '}' after class body.")
-	parser.emitByte(OpPop)
-
-	if classCompiler.hasSuperclass {
-		endScope()
-	}
-
-	currentClass = currentClass.enclosing
-}
-
-func method() {
-	parser.consume(TokenIdentifier, "Expect method name.")
-	constant := identifierConstant(parser.previous)
-
-	functionType := TypeMethod
-	if parser.previous.lexeme == "init" {
-		functionType = TypeInitializer
-	}
-	function(functionType)
-	parser.emitBytes(OpMethod, constant)
-}
-
-func function(functionType FunctionType) {
-	var compiler Compiler
-	initCompiler(&compiler, functionType)
-	beginScope()
-
-	parser.consume(TokenLeftParen, "Expect '(' after function name.")
-	if !check(TokenRightParen) {
-		for ok := true; ok; ok = match(TokenComma) {
-			current.function.arity++
-			if current.function.arity > 255 {
-				errorAtCurrent("Can't have more than 255 parameters.")
-			}
-			constant := parseVariable("Expect parameter name.")
-			defineVariable(constant)
-		}
-	}
-	parser.consume(TokenRightParen, "Expect ')' after parameters.")
-	parser.consume(TokenLeftBrace, "Expect '{' before function body.")
-	block()
-
-	function := parser.endCompiler()
-	parser.emitBytes(OpClosure, makeConstant(functionVal(function)))
-
-	for i := 0; i < function.upvalueCount; i++ {
-		if compiler.upvalues[i].isLocal {
-			parser.emitByte(1)
-		} else {
-			parser.emitByte(0)
-		}
-		parser.emitByte(compiler.upvalues[i].index)
-	}
-}
-
-func funDeclaration() {
-	global := parseVariable("Expect function name.")
-	markInitialized()
-	function(TypeFunction)
-	defineVariable(global)
-}
-
-func varDeclaration() {
-	global := parseVariable("Expect variable name.")
-
-	if match(TokenEqual) {
-		expression()
-	} else {
-		parser.emitByte(OpNil)
-	}
-	parser.consume(TokenSemicolon, "Expect ';' after variable declaration.")
-
-	defineVariable(global)
-}
-
-func expressionStatement() {
-	expression()
-	parser.consume(TokenSemicolon, "Expect ';' after expression.")
-	parser.emitByte(OpPop)
-}
-
-func forStatement() {
-	beginScope()
-	parser.consume(TokenLeftParen, "Expect '(' after 'for'.")
-	if match(TokenSemicolon) {
-		// No initializer.
-	} else if match(TokenVar) {
-		varDeclaration()
-	} else {
-		expressionStatement()
-	}
-
-	loopStart := len(currentChunk().code)
-	exitJump := -1
-	if !match(TokenSemicolon) {
-		expression()
-		parser.consume(TokenSemicolon, "Expect ';' after loop condition.")
-
-		// Jump out of the loop if the condition is false.
-		exitJump = parser.emitJump(OpJumpIfFalse)
-		parser.emitByte(OpPop) // Condition.
-	}
-
-	if !match(TokenRightParen) {
-		bodyJump := parser.emitJump(OpJump)
-		incrementStart := len(currentChunk().code)
-		expression()
-		parser.emitByte(OpPop)
-		parser.consume(TokenRightParen, "Expect ')' after for clauses.")
-
-		parser.emitLoop(loopStart)
-		loopStart = incrementStart
-		parser.patchJump(bodyJump)
-	}
-
-	statement()
-	parser.emitLoop(loopStart)
-
-	if exitJump != -1 {
-		parser.patchJump(exitJump)
-		parser.emitByte(OpPop)
-	}
-
-	endScope()
-}
-
-func ifStatement() {
-	parser.consume(TokenLeftParen, "Expect '(' after if.")
-	expression()
-	parser.consume(TokenRightParen, "Expect ')' after condition.")
-
-	thenJump := parser.emitJump(OpJumpIfFalse)
-	parser.emitByte(OpPop)
-	statement()
-
-	elseJump := parser.emitJump(OpJump)
-
-	parser.patchJump(thenJump)
-	parser.emitByte(OpPop)
-
-	if match(TokenElse) {
-		statement()
-	}
-	parser.patchJump(elseJump)
-}
-
-func printStatement() {
-	expression()
-	parser.consume(TokenSemicolon, "Expect ';' after value.")
-	parser.emitByte(OpPrint)
-}
-
-func returnStatement() {
-	if current.functionType == TypeScript {
-		_error("Can't return from top-level code.")
-	}
-
-	if match(TokenSemicolon) {
-		parser.emitReturn()
-	} else {
-		if current.functionType == TypeInitializer {
-			_error("Can't return a value from an initializer.")
-		}
-
-		expression()
-		parser.consume(TokenSemicolon, "Expect ';' after return value.")
-		parser.emitByte(OpReturn)
-	}
-}
-
-func whileStatement() {
-	loopStart := len(currentChunk().code)
-	parser.consume(TokenLeftParen, "Expect '(' after 'while'.")
-	expression()
-	parser.consume(TokenRightParen, "Expect ')' after condition.")
-
-	exitJump := parser.emitJump(OpJumpIfFalse)
-	parser.emitByte(OpPop)
-	statement()
-	parser.emitLoop(loopStart)
-
-	parser.patchJump(exitJump)
-	parser.emitByte(OpPop)
-}
-
-func synchronize() {
-	parser.panicMode = false
-	for parser.current.tokenType != TokenEof {
-		if parser.previous.tokenType == TokenSemicolon {
-			return
-		}
-		switch parser.current.tokenType {
-		case TokenClass:
-		case TokenFun:
-		case TokenVar:
-		case TokenFor:
-		case TokenIf:
-		case TokenWhile:
-		case TokenPrint:
-		case TokenReturn:
-			return
-		default:
-			// Do nothing.
-		}
-		parser.advance()
-	}
+	advance()
+	return true
 }
 
 func declaration() {
@@ -428,6 +236,72 @@ func declaration() {
 	if parser.panicMode {
 		synchronize()
 	}
+}
+
+func classDeclaration() {
+	consume(TokenIdentifier, "Expect class name.")
+	className := parser.previous
+	nameConstant := identifierConstant(parser.previous)
+	declareVariable()
+
+	emitBytes(OpClass, nameConstant)
+	defineVariable(nameConstant)
+
+	classCompiler := ClassCompiler{}
+	classCompiler.hasSuperclass = false
+	classCompiler.enclosing = currentClass
+	currentClass = &classCompiler
+
+	if match(TokenLess) {
+		consume(TokenIdentifier, "Expect superclass name.")
+		variable(false)
+
+		if identifiersEqual(className, parser.previous) {
+			_error("A class can't inherit from itself.")
+		}
+
+		beginScope()
+		addLocal(syntheticToken("super"))
+		defineVariable(0)
+
+		namedVariable(className, false)
+		emitByte(OpInherit)
+		classCompiler.hasSuperclass = true
+	}
+
+	namedVariable(className, false)
+	consume(TokenLeftBrace, "Expect '{' before class body.")
+	for !check(TokenRightBrace) && !check(TokenEof) {
+		method()
+	}
+	consume(TokenRightBrace, "Expect '}' after class body.")
+	emitByte(OpPop)
+
+	if classCompiler.hasSuperclass {
+		endScope()
+	}
+
+	currentClass = currentClass.enclosing
+}
+
+func funDeclaration() {
+	global := parseVariable("Expect function name.")
+	markInitialized()
+	function(TypeFunction)
+	defineVariable(global)
+}
+
+func varDeclaration() {
+	global := parseVariable("Expect variable name.")
+
+	if match(TokenEqual) {
+		expression()
+	} else {
+		emitByte(OpNil)
+	}
+	consume(TokenSemicolon, "Expect ';' after variable declaration.")
+
+	defineVariable(global)
 }
 
 func statement() {
@@ -450,45 +324,163 @@ func statement() {
 	}
 }
 
-func (parser *Parser) consume(tokenType TokenType, message string) {
-	if parser.current.tokenType == tokenType {
-		parser.advance()
-		return
+func expression() {
+	parsePrecedence(PrecAssignment)
+}
+
+func method() {
+	consume(TokenIdentifier, "Expect method name.")
+	constant := identifierConstant(parser.previous)
+
+	functionType := TypeMethod
+	if parser.previous.lexeme == "init" {
+		functionType = TypeInitializer
 	}
-
-	errorAtCurrent(message)
+	function(functionType)
+	emitBytes(OpMethod, constant)
 }
 
-func check(tokenType TokenType) bool {
-	return parser.current.tokenType == tokenType
-}
+func function(functionType FunctionType) {
+	var compiler Compiler
+	initCompiler(&compiler, functionType)
+	beginScope()
 
-func match(tokenType TokenType) bool {
-	if !check(tokenType) {
-		return false
-	}
-	parser.advance()
-	return true
-}
-
-func (parser *Parser) endCompiler() *Function {
-	parser.emitReturn()
-	function := current.function
-
-	if DebugPrintCode {
-		if !parser.hadError {
-			var functionName string
-			if function.name != "" {
-				functionName = function.name
-			} else {
-				functionName = "<script>"
+	consume(TokenLeftParen, "Expect '(' after function name.")
+	if !check(TokenRightParen) {
+		for ok := true; ok; ok = match(TokenComma) {
+			current.function.arity++
+			if current.function.arity > 255 {
+				errorAtCurrent("Can't have more than 255 parameters.")
 			}
-			disassembleChunk(currentChunk(), functionName)
+			constant := parseVariable("Expect parameter name.")
+			defineVariable(constant)
 		}
 	}
+	consume(TokenRightParen, "Expect ')' after parameters.")
+	consume(TokenLeftBrace, "Expect '{' before function body.")
+	block()
 
-	current = current.enclosing
-	return function
+	function := endCompiler()
+	emitBytes(OpClosure, makeConstant(functionVal(function)))
+
+	for i := 0; i < function.upvalueCount; i++ {
+		if compiler.upvalues[i].isLocal {
+			emitByte(1)
+		} else {
+			emitByte(0)
+		}
+		emitByte(compiler.upvalues[i].index)
+	}
+}
+
+func printStatement() {
+	expression()
+	consume(TokenSemicolon, "Expect ';' after value.")
+	emitByte(OpPrint)
+}
+
+func forStatement() {
+	beginScope()
+	consume(TokenLeftParen, "Expect '(' after 'for'.")
+	if match(TokenSemicolon) {
+		// No initializer.
+	} else if match(TokenVar) {
+		varDeclaration()
+	} else {
+		expressionStatement()
+	}
+
+	loopStart := len(currentChunk().code)
+	exitJump := -1
+	if !match(TokenSemicolon) {
+		expression()
+		consume(TokenSemicolon, "Expect ';' after loop condition.")
+
+		// Jump out of the loop if the condition is false.
+		exitJump = emitJump(OpJumpIfFalse)
+		emitByte(OpPop) // Condition.
+	}
+
+	if !match(TokenRightParen) {
+		bodyJump := emitJump(OpJump)
+		incrementStart := len(currentChunk().code)
+		expression()
+		emitByte(OpPop)
+		consume(TokenRightParen, "Expect ')' after for clauses.")
+
+		emitLoop(loopStart)
+		loopStart = incrementStart
+		patchJump(bodyJump)
+	}
+
+	statement()
+	emitLoop(loopStart)
+
+	if exitJump != -1 {
+		patchJump(exitJump)
+		emitByte(OpPop)
+	}
+
+	endScope()
+}
+
+func ifStatement() {
+	consume(TokenLeftParen, "Expect '(' after if.")
+	expression()
+	consume(TokenRightParen, "Expect ')' after condition.")
+
+	thenJump := emitJump(OpJumpIfFalse)
+	emitByte(OpPop)
+	statement()
+
+	elseJump := emitJump(OpJump)
+
+	patchJump(thenJump)
+	emitByte(OpPop)
+
+	if match(TokenElse) {
+		statement()
+	}
+	patchJump(elseJump)
+}
+
+func returnStatement() {
+	if current.functionType == TypeScript {
+		_error("Can't return from top-level code.")
+	}
+
+	if match(TokenSemicolon) {
+		emitReturn()
+	} else {
+		if current.functionType == TypeInitializer {
+			_error("Can't return a value from an initializer.")
+		}
+
+		expression()
+		consume(TokenSemicolon, "Expect ';' after return value.")
+		emitByte(OpReturn)
+	}
+}
+
+func whileStatement() {
+	loopStart := len(currentChunk().code)
+	consume(TokenLeftParen, "Expect '(' after 'while'.")
+	expression()
+	consume(TokenRightParen, "Expect ')' after condition.")
+
+	exitJump := emitJump(OpJumpIfFalse)
+	emitByte(OpPop)
+	statement()
+	emitLoop(loopStart)
+
+	patchJump(exitJump)
+	emitByte(OpPop)
+}
+
+func expressionStatement() {
+	expression()
+	consume(TokenSemicolon, "Expect ';' after expression.")
+	emitByte(OpPop)
 }
 
 func beginScope() {
@@ -500,34 +492,50 @@ func endScope() {
 
 	for current.localCount > 0 && current.locals[current.localCount-1].depth > current.scopeDepth {
 		if current.locals[current.localCount-1].isCaptured {
-			parser.emitByte(OpCloseUpvalue)
+			emitByte(OpCloseUpvalue)
 		} else {
-			parser.emitByte(OpPop)
+			emitByte(OpPop)
 		}
 		current.localCount--
 	}
 }
 
-func parsePrecedence(precedence Precedence) {
-	parser.advance()
-	prefixRule := getRule(parser.previous.tokenType).prefix
-	if prefixRule == nil {
-		_error("Expect expression.")
+func block() {
+	for !check(TokenRightBrace) && !check(TokenEof) {
+		declaration()
+	}
+
+	consume(TokenRightBrace, "Expect '}' after block.")
+}
+
+func declareVariable() {
+	if current.scopeDepth == 0 {
+		return
+	}
+	name := parser.previous
+	for i := current.localCount - 1; i >= 0; i-- {
+		local := current.locals[i]
+		if local.depth != -1 && local.depth < current.scopeDepth {
+			break
+		}
+		if identifiersEqual(name, local.name) {
+			_error("Already a variable with this name in this scope.")
+		}
+	}
+	addLocal(name)
+}
+
+func addLocal(name Token) {
+	if current.localCount == 256 {
+		_error("Too many local variables in function.")
 		return
 	}
 
-	canAssign := precedence <= PrecAssignment
-	prefixRule(canAssign)
-
-	for precedence <= getRule(parser.current.tokenType).precedence {
-		parser.advance()
-		infixRule := getRule(parser.previous.tokenType).infix
-		infixRule(canAssign)
-	}
-
-	if canAssign && match(TokenEqual) {
-		_error("Invalid assignment target.")
-	}
+	local := &current.locals[current.localCount]
+	current.localCount++
+	local.name = name
+	local.depth = -1
+	local.isCaptured = false
 }
 
 func identifierConstant(name Token) uint8 {
@@ -536,6 +544,32 @@ func identifierConstant(name Token) uint8 {
 
 func identifiersEqual(a Token, b Token) bool {
 	return a.lexeme == b.lexeme
+}
+
+func parseVariable(errorMessage string) uint8 {
+	consume(TokenIdentifier, errorMessage)
+
+	declareVariable()
+	if current.scopeDepth > 0 {
+		return 0
+	}
+
+	return identifierConstant(parser.previous)
+}
+
+func defineVariable(global uint8) {
+	if current.scopeDepth > 0 {
+		markInitialized()
+		return
+	}
+	emitBytes(OpDefineGlobal, global)
+}
+
+func markInitialized() {
+	if current.scopeDepth == 0 {
+		return
+	}
+	current.locals[current.localCount-1].depth = current.scopeDepth
 }
 
 func resolveLocal(compiler *Compiler, name Token) int {
@@ -591,62 +625,6 @@ func resolveUpvalue(compiler *Compiler, name Token) int {
 	return -1
 }
 
-func addLocal(name Token) {
-	if current.localCount == 256 {
-		_error("Too many local variables in function.")
-		return
-	}
-
-	local := &current.locals[current.localCount]
-	current.localCount++
-	local.name = name
-	local.depth = -1
-	local.isCaptured = false
-}
-
-func declareVariable() {
-	if current.scopeDepth == 0 {
-		return
-	}
-	name := parser.previous
-	for i := current.localCount - 1; i >= 0; i-- {
-		local := current.locals[i]
-		if local.depth != -1 && local.depth < current.scopeDepth {
-			break
-		}
-		if identifiersEqual(name, local.name) {
-			_error("Already a variable with this name in this scope.")
-		}
-	}
-	addLocal(name)
-}
-
-func parseVariable(errorMessage string) uint8 {
-	parser.consume(TokenIdentifier, errorMessage)
-
-	declareVariable()
-	if current.scopeDepth > 0 {
-		return 0
-	}
-
-	return identifierConstant(parser.previous)
-}
-
-func markInitialized() {
-	if current.scopeDepth == 0 {
-		return
-	}
-	current.locals[current.localCount-1].depth = current.scopeDepth
-}
-
-func defineVariable(global uint8) {
-	if current.scopeDepth > 0 {
-		markInitialized()
-		return
-	}
-	parser.emitBytes(OpDefineGlobal, global)
-}
-
 func argumentList() uint8 {
 	var argCount uint8 = 0
 	if !check(TokenRightParen) {
@@ -658,140 +636,8 @@ func argumentList() uint8 {
 			argCount++
 		}
 	}
-	parser.consume(TokenRightParen, "Expect ')' after arguments.")
+	consume(TokenRightParen, "Expect ')' after arguments.")
 	return argCount
-}
-
-func _and(canAssign bool) {
-	endJump := parser.emitJump(OpJumpIfFalse)
-
-	parser.emitByte(OpPop)
-	parsePrecedence(PrecAnd)
-
-	parser.patchJump(endJump)
-}
-
-func grouping(canAssign bool) {
-	expression()
-	parser.consume(TokenRightParen, "Expect ')' after expression.")
-}
-
-func unary(canAssign bool) {
-	operatorType := parser.previous.tokenType
-
-	// Compile the operand.
-	parsePrecedence(PrecUnary)
-
-	// Emit the operator instruction.
-	switch operatorType {
-	case TokenBang:
-		parser.emitByte(OpNot)
-		break
-	case TokenMinus:
-		parser.emitByte(OpNegate)
-		break
-	default:
-		return // Unreachable.
-	}
-}
-
-func binary(canAssign bool) {
-	operatorType := parser.previous.tokenType
-	rule := getRule(operatorType)
-	parsePrecedence(rule.precedence + 1)
-
-	switch operatorType {
-	case TokenBangEqual:
-		parser.emitBytes(OpEqual, OpNot)
-		break
-	case TokenEqualEqual:
-		parser.emitByte(OpEqual)
-		break
-	case TokenGreater:
-		parser.emitByte(OpGreater)
-		break
-	case TokenLess:
-		parser.emitByte(OpLess)
-		break
-	case TokenLessEqual:
-		parser.emitBytes(OpGreater, OpNot)
-		break
-	case TokenGreaterEqual:
-		parser.emitBytes(OpLess, OpNot)
-		break
-	case TokenPlus:
-		parser.emitByte(OpAdd)
-		break
-	case TokenMinus:
-		parser.emitByte(OpSubtract)
-		break
-	case TokenStar:
-		parser.emitByte(OpMultiply)
-		break
-	case TokenSlash:
-		parser.emitByte(OpDivide)
-		break
-	default:
-		return // Unreachable.
-	}
-}
-
-func call(canAssign bool) {
-	argCount := argumentList()
-	parser.emitBytes(OpCall, argCount)
-}
-
-func dot(canAssign bool) {
-	parser.consume(TokenIdentifier, "Expect property name after '.'.")
-	name := identifierConstant(parser.previous)
-
-	if canAssign && match(TokenEqual) {
-		expression()
-		parser.emitBytes(OpSetProperty, name)
-	} else if match(TokenLeftParen) {
-		argCount := argumentList()
-		parser.emitBytes(OpInvoke, name)
-		parser.emitByte(argCount)
-	} else {
-		parser.emitBytes(OpGetProperty, name)
-	}
-}
-
-func literal(canAssign bool) {
-	switch parser.previous.tokenType {
-	case TokenFalse:
-		parser.emitByte(OpFalse)
-		break
-	case TokenNil:
-		parser.emitByte(OpNil)
-		break
-	case TokenTrue:
-		parser.emitByte(OpTrue)
-		break
-	default:
-		return // Unreachable.
-	}
-}
-
-func number(canAssign bool) {
-	value, _ := strconv.ParseFloat(parser.previous.lexeme, 64)
-	parser.emitConstant(numberVal(value))
-}
-
-func _or(canAssign bool) {
-	elseJump := parser.emitJump(OpJumpIfFalse)
-	endJump := parser.emitJump(OpJump)
-
-	parser.patchJump(elseJump)
-	parser.emitByte(OpPop)
-
-	parsePrecedence(PrecOr)
-	parser.patchJump(endJump)
-}
-
-func _string(canAssign bool) {
-	stringValue := Value{valueType: ValString, as: union{string: parser.previous.lexeme}}
-	parser.emitConstant(stringValue)
 }
 
 func namedVariable(name Token, canAssign bool) {
@@ -812,14 +658,10 @@ func namedVariable(name Token, canAssign bool) {
 
 	if canAssign && match(TokenEqual) {
 		expression()
-		parser.emitBytes(setOp, uint8(arg))
+		emitBytes(setOp, uint8(arg))
 	} else {
-		parser.emitBytes(getOp, uint8(arg))
+		emitBytes(getOp, uint8(arg))
 	}
-}
-
-func variable(canAssign bool) {
-	namedVariable(parser.previous, canAssign)
 }
 
 func syntheticToken(text string) Token {
@@ -828,30 +670,190 @@ func syntheticToken(text string) Token {
 	return token
 }
 
-func super(canAssign bool) {
+func synchronize() {
+	parser.panicMode = false
+	for parser.current.tokenType != TokenEof {
+		if parser.previous.tokenType == TokenSemicolon {
+			return
+		}
+		switch parser.current.tokenType {
+		case TokenClass:
+		case TokenFun:
+		case TokenVar:
+		case TokenFor:
+		case TokenIf:
+		case TokenWhile:
+		case TokenPrint:
+		case TokenReturn:
+			return
+		default:
+			// Do nothing.
+		}
+		advance()
+	}
+}
+
+// Parse rule functions
+func and(bool) {
+	endJump := emitJump(OpJumpIfFalse)
+
+	emitByte(OpPop)
+	parsePrecedence(PrecAnd)
+
+	patchJump(endJump)
+}
+
+func grouping(bool) {
+	expression()
+	consume(TokenRightParen, "Expect ')' after expression.")
+}
+
+func unary(bool) {
+	operatorType := parser.previous.tokenType
+
+	// Compile the operand.
+	parsePrecedence(PrecUnary)
+
+	// Emit the operator instruction.
+	switch operatorType {
+	case TokenBang:
+		emitByte(OpNot)
+		break
+	case TokenMinus:
+		emitByte(OpNegate)
+		break
+	default:
+		return // Unreachable.
+	}
+}
+
+func binary(bool) {
+	operatorType := parser.previous.tokenType
+	rule := getRule(operatorType)
+	parsePrecedence(rule.precedence + 1)
+
+	switch operatorType {
+	case TokenBangEqual:
+		emitBytes(OpEqual, OpNot)
+		break
+	case TokenEqualEqual:
+		emitByte(OpEqual)
+		break
+	case TokenGreater:
+		emitByte(OpGreater)
+		break
+	case TokenLess:
+		emitByte(OpLess)
+		break
+	case TokenLessEqual:
+		emitBytes(OpGreater, OpNot)
+		break
+	case TokenGreaterEqual:
+		emitBytes(OpLess, OpNot)
+		break
+	case TokenPlus:
+		emitByte(OpAdd)
+		break
+	case TokenMinus:
+		emitByte(OpSubtract)
+		break
+	case TokenStar:
+		emitByte(OpMultiply)
+		break
+	case TokenSlash:
+		emitByte(OpDivide)
+		break
+	default:
+		return // Unreachable.
+	}
+}
+
+func call(bool) {
+	argCount := argumentList()
+	emitBytes(OpCall, argCount)
+}
+
+func dot(canAssign bool) {
+	consume(TokenIdentifier, "Expect property name after '.'.")
+	name := identifierConstant(parser.previous)
+
+	if canAssign && match(TokenEqual) {
+		expression()
+		emitBytes(OpSetProperty, name)
+	} else if match(TokenLeftParen) {
+		argCount := argumentList()
+		emitBytes(OpInvoke, name)
+		emitByte(argCount)
+	} else {
+		emitBytes(OpGetProperty, name)
+	}
+}
+
+func literal(bool) {
+	switch parser.previous.tokenType {
+	case TokenFalse:
+		emitByte(OpFalse)
+		break
+	case TokenNil:
+		emitByte(OpNil)
+		break
+	case TokenTrue:
+		emitByte(OpTrue)
+		break
+	default:
+		return // Unreachable.
+	}
+}
+
+func number(bool) {
+	value, _ := strconv.ParseFloat(parser.previous.lexeme, 64)
+	emitConstant(numberVal(value))
+}
+
+func or(bool) {
+	elseJump := emitJump(OpJumpIfFalse)
+	endJump := emitJump(OpJump)
+
+	patchJump(elseJump)
+	emitByte(OpPop)
+
+	parsePrecedence(PrecOr)
+	patchJump(endJump)
+}
+
+func _string(bool) {
+	stringValue := Value{valueType: ValString, as: union{string: parser.previous.lexeme}}
+	emitConstant(stringValue)
+}
+
+func variable(canAssign bool) {
+	namedVariable(parser.previous, canAssign)
+}
+
+func super(bool) {
 	if currentClass == nil {
 		_error("Can't use 'super' outside of a class.")
 	} else if !currentClass.hasSuperclass {
 		_error("Can't use 'super' in a class with no superclass.")
 	}
 
-	parser.consume(TokenDot, "Expect '.' after 'super'.")
-	parser.consume(TokenIdentifier, "Expect superclass method name.")
+	consume(TokenDot, "Expect '.' after 'super'.")
+	consume(TokenIdentifier, "Expect superclass method name.")
 	name := identifierConstant(parser.previous)
 
 	namedVariable(syntheticToken("this"), false)
 	if match(TokenLeftParen) {
 		argCount := argumentList()
 		namedVariable(syntheticToken("super"), false)
-		parser.emitBytes(OpSuperInvoke, name)
-		parser.emitByte(argCount)
+		emitBytes(OpSuperInvoke, name)
+		emitByte(argCount)
 	} else {
 		namedVariable(syntheticToken("super"), false)
-		parser.emitBytes(OpGetSuper, name)
+		emitBytes(OpGetSuper, name)
 	}
 }
 
-func this(canAssign bool) {
+func this(bool) {
 	if currentClass == nil {
 		_error("Can't use 'this' outside of a class.")
 		return
@@ -860,8 +862,9 @@ func this(canAssign bool) {
 	variable(false)
 }
 
+// Emit bytecodes for VM.
 func makeConstant(value Value) uint8 {
-	constant := currentChunk().AddConstant(value)
+	constant := currentChunk().addConstant(value)
 	if constant > 255 {
 		_error("Too many constants in one chunk.")
 		return 0
@@ -869,7 +872,7 @@ func makeConstant(value Value) uint8 {
 	return constant
 }
 
-func (parser *Parser) patchJump(offset int) {
+func patchJump(offset int) {
 	// -2 to adjust for the bytecode for the jump offset itself.
 	jump := len(currentChunk().code) - offset - 2
 
@@ -881,48 +884,49 @@ func (parser *Parser) patchJump(offset int) {
 	currentChunk().code[offset+1] = uint8(jump & 0xff)
 }
 
-func (parser *Parser) emitLoop(loopStart int) {
-	parser.emitByte(OpLoop)
+func emitLoop(loopStart int) {
+	emitByte(OpLoop)
 
 	offset := len(currentChunk().code) - loopStart + 2
 	if offset > 65535 {
 		_error("Loop body too large.")
 	}
 
-	parser.emitByte(byte((offset >> 8) & 0xff))
-	parser.emitByte(byte(offset & 0xff))
+	emitByte(byte((offset >> 8) & 0xff))
+	emitByte(byte(offset & 0xff))
 }
 
-func (parser *Parser) emitConstant(value Value) {
-	parser.emitBytes(OpConstant, makeConstant(value))
+func emitConstant(value Value) {
+	emitBytes(OpConstant, makeConstant(value))
 }
 
-func (parser *Parser) emitReturn() {
+func emitReturn() {
 	if current.functionType == TypeInitializer {
-		parser.emitBytes(OpGetLocal, 0)
+		emitBytes(OpGetLocal, 0)
 	} else {
-		parser.emitByte(OpNil)
+		emitByte(OpNil)
 	}
 
-	parser.emitByte(OpReturn)
+	emitByte(OpReturn)
 }
 
-func (parser *Parser) emitJump(instruction uint8) int {
-	parser.emitByte(instruction)
-	parser.emitByte(0xff)
-	parser.emitByte(0xff)
+func emitJump(instruction uint8) int {
+	emitByte(instruction)
+	emitByte(0xff)
+	emitByte(0xff)
 	return len(currentChunk().code) - 2
 }
 
-func (parser *Parser) emitBytes(byte1 uint8, byte2 uint8) {
-	parser.emitByte(byte1)
-	parser.emitByte(byte2)
+func emitBytes(byte1 uint8, byte2 uint8) {
+	emitByte(byte1)
+	emitByte(byte2)
 }
 
-func (parser *Parser) emitByte(byte uint8) {
-	currentChunk().Write(byte, parser.previous.line)
+func emitByte(byte uint8) {
+	currentChunk().write(byte, parser.previous.line)
 }
 
+// Report errors.
 func _error(message string) {
 	errorAt(parser.previous, message)
 }

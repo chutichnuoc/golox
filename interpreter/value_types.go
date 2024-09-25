@@ -3,15 +3,15 @@ package interpreter
 type ValueType int
 
 const (
-	ValBool = iota
+	ValBool ValueType = iota
 	ValNil
 	ValNumber
 	ValString
-	ValBoundMethod
-	ValClass
-	ValInstance
-	ValClosure
 	ValFunction
+	ValClosure
 	ValUpvalue
 	ValNativeFn
+	ValClass
+	ValInstance
+	ValBoundMethod
 )

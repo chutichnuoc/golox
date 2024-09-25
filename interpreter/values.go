@@ -2,7 +2,9 @@ package interpreter
 
 import "fmt"
 
-type NativeFn func(argCount int, args []Value) Value
+type ValueArray struct {
+	values []Value
+}
 
 type Value struct {
 	valueType ValueType
@@ -13,19 +15,28 @@ type union struct {
 	boolean     bool
 	number      float64
 	string      string
-	closure     *Closure
 	function    *Function
-	boundMethod *BoundMethod
+	closure     *Closure
+	nativeFn    NativeFn
 	class       *Class
 	instance    *Instance
-	nativeFn    NativeFn
+	boundMethod *BoundMethod
+}
+
+type Function struct {
+	arity        int
+	upvalueCount int
+	chunk        Chunk
+	name         string
 }
 
 type Closure struct {
 	function     *Function
-	upvalues     []*ObjUpvalue
+	upvalues     []*Upvalue
 	upvalueCount int
 }
+
+type NativeFn func(argCount int, args []Value) Value
 
 type Class struct {
 	name    string
@@ -42,32 +53,24 @@ type BoundMethod struct {
 	method   *Closure
 }
 
-type Function struct {
-	arity        int
-	upvalueCount int
-	chunk        Chunk
-	name         string
-}
-
-type ObjUpvalue struct {
+type Upvalue struct {
 	location *Value
 	closed   Value
-	next     *ObjUpvalue
+	next     *Upvalue
+}
+
+func newFunction() *Function {
+	function := Function{}
+	function.chunk = *newChunk()
+	return &function
 }
 
 func newClosure(function *Function) *Closure {
 	closure := Closure{}
 	closure.function = function
-	closure.upvalues = make([]*ObjUpvalue, 256)
+	closure.upvalues = make([]*Upvalue, 256)
 	closure.upvalueCount = function.upvalueCount
 	return &closure
-}
-
-func newBoundMethod(receiver Value, method *Closure) *BoundMethod {
-	boundMethod := &BoundMethod{}
-	boundMethod.receiver = receiver
-	boundMethod.method = method
-	return boundMethod
 }
 
 func newClass(name string) *Class {
@@ -77,12 +80,6 @@ func newClass(name string) *Class {
 	return class
 }
 
-func newFunction() *Function {
-	function := Function{}
-	function.chunk = *NewChunk()
-	return &function
-}
-
 func newInstance(class *Class) *Instance {
 	instance := &Instance{}
 	instance.class = class
@@ -90,8 +87,15 @@ func newInstance(class *Class) *Instance {
 	return instance
 }
 
-func newUpvalue(slot *Value) *ObjUpvalue {
-	upvalue := &ObjUpvalue{}
+func newBoundMethod(receiver Value, method *Closure) *BoundMethod {
+	boundMethod := &BoundMethod{}
+	boundMethod.receiver = receiver
+	boundMethod.method = method
+	return boundMethod
+}
+
+func newUpvalue(slot *Value) *Upvalue {
+	upvalue := &Upvalue{}
 	upvalue.location = slot
 	upvalue.next = nil
 	return upvalue
@@ -109,32 +113,32 @@ func numberVal(value float64) Value {
 	return Value{valueType: ValNumber, as: union{number: value}}
 }
 
-func closureVal(value *Closure) Value {
-	return Value{valueType: ValClosure, as: union{closure: value}}
-}
-
-func boundMethodVal(value *BoundMethod) Value {
-	return Value{valueType: ValBoundMethod, as: union{boundMethod: value}}
-}
-
-func instanceVal(value *Instance) Value {
-	return Value{valueType: ValInstance, as: union{instance: value}}
-}
-
-func classVal(value *Class) Value {
-	return Value{valueType: ValClass, as: union{class: value}}
+func stringVal(value string) Value {
+	return Value{valueType: ValString, as: union{string: value}}
 }
 
 func functionVal(value *Function) Value {
 	return Value{valueType: ValFunction, as: union{function: value}}
 }
 
+func closureVal(value *Closure) Value {
+	return Value{valueType: ValClosure, as: union{closure: value}}
+}
+
 func nativeFnVal(value NativeFn) Value {
 	return Value{valueType: ValNativeFn, as: union{nativeFn: value}}
 }
 
-func stringVal(value string) Value {
-	return Value{valueType: ValString, as: union{string: value}}
+func classVal(value *Class) Value {
+	return Value{valueType: ValClass, as: union{class: value}}
+}
+
+func instanceVal(value *Instance) Value {
+	return Value{valueType: ValInstance, as: union{instance: value}}
+}
+
+func boundMethodVal(value *BoundMethod) Value {
+	return Value{valueType: ValBoundMethod, as: union{boundMethod: value}}
 }
 
 func asBool(value Value) bool {
@@ -145,8 +149,24 @@ func asNumber(value Value) float64 {
 	return value.as.number
 }
 
+func asString(value Value) string {
+	return value.as.string
+}
+
+func asFunction(value Value) *Function {
+	return value.as.function
+}
+
 func asClosure(value Value) *Closure {
 	return value.as.closure
+}
+
+func asNativeFn(value Value) NativeFn {
+	return value.as.nativeFn
+}
+
+func asClass(value Value) *Class {
+	return value.as.class
 }
 
 func asInstance(value Value) *Instance {
@@ -155,22 +175,6 @@ func asInstance(value Value) *Instance {
 
 func asBoundMethod(value Value) *BoundMethod {
 	return value.as.boundMethod
-}
-
-func asClass(value Value) *Class {
-	return value.as.class
-}
-
-func asFunction(value Value) *Function {
-	return value.as.function
-}
-
-func asNativeFn(value Value) NativeFn {
-	return value.as.nativeFn
-}
-
-func asString(value Value) string {
-	return value.as.string
 }
 
 func isBool(value Value) bool {
@@ -185,8 +189,20 @@ func isNumber(value Value) bool {
 	return value.valueType == ValNumber
 }
 
+func isString(value Value) bool {
+	return value.valueType == ValString
+}
+
 func isClosure(value Value) bool {
 	return value.valueType == ValClosure
+}
+
+func isNativeFn(value Value) bool {
+	return value.valueType == ValNativeFn
+}
+
+func isClass(value Value) bool {
+	return value.valueType == ValClass
 }
 
 func isInstance(value Value) bool {
@@ -195,26 +211,6 @@ func isInstance(value Value) bool {
 
 func isBoundMethod(value Value) bool {
 	return value.valueType == ValBoundMethod
-}
-
-func isClass(value Value) bool {
-	return value.valueType == ValClass
-}
-
-func isFunction(value Value) bool {
-	return value.valueType == ValFunction
-}
-
-func isNativeFn(value Value) bool {
-	return value.valueType == ValNativeFn
-}
-
-func isString(value Value) bool {
-	return value.valueType == ValString
-}
-
-type ValueArray struct {
-	values []Value
 }
 
 func newValueArray() *ValueArray {

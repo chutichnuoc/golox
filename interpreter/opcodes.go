@@ -1,7 +1,7 @@
 package interpreter
 
 const (
-	OpConstant = iota
+	OpConstant uint8 = iota
 	OpNil
 	OpTrue
 	OpFalse

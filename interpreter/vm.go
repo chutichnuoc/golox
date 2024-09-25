@@ -21,7 +21,7 @@ type VM struct {
 	frameCount   int
 	stack        [StackMax]Value
 	stackTop     int
-	openUpvalues *ObjUpvalue
+	openUpvalues *Upvalue
 }
 
 func InitVM() *VM {
@@ -104,12 +104,12 @@ func (vm *VM) callValue(callee Value, argCount int) bool {
 }
 
 func (vm *VM) invokeFromClass(class *Class, name string, argCount int) bool {
-	classMethod, ok := class.methods[name]
+	method, ok := class.methods[name]
 	if !ok {
 		vm.runtimeError("Undefined property '%s'.", name)
 		return false
 	}
-	return vm.call(asClosure(classMethod), argCount)
+	return vm.call(asClosure(method), argCount)
 }
 
 func (vm *VM) invoke(name string, argCount int) bool {
@@ -132,20 +132,20 @@ func (vm *VM) invoke(name string, argCount int) bool {
 }
 
 func (vm *VM) bindMethod(class *Class, name string) bool {
-	classMethod, ok := class.methods[name]
+	method, ok := class.methods[name]
 	if !ok {
 		vm.runtimeError("Undefined property '%s'.", name)
 		return false
 	}
 
-	bound := newBoundMethod(vm.peek(0), asClosure(classMethod))
+	bound := newBoundMethod(vm.peek(0), asClosure(method))
 	vm.pop()
 	vm.push(boundMethodVal(bound))
 	return true
 }
 
-func (vm *VM) captureUpvalue(local *Value) *ObjUpvalue {
-	var prevUpvalue *ObjUpvalue
+func (vm *VM) captureUpvalue(local *Value) *Upvalue {
+	var prevUpvalue *Upvalue
 	upvalue := vm.openUpvalues
 	for upvalue != nil && vm.findStackIndex(upvalue.location) > vm.findStackIndex(local) {
 		prevUpvalue = upvalue
@@ -186,33 +186,10 @@ func (vm *VM) findStackIndex(value *Value) int {
 }
 
 func (vm *VM) defineMethod(name string) {
-	classMethod := vm.peek(0)
+	method := vm.peek(0)
 	class := asClass(vm.peek(1))
-	class.methods[name] = classMethod
+	class.methods[name] = method
 	vm.pop()
-}
-
-func (frame *CallFrame) readByte() uint8 {
-	code := frame.closure.function.chunk.code[frame.ip]
-	frame.ip++
-	return code
-}
-
-func (frame *CallFrame) readConstant() Value {
-	return frame.closure.function.chunk.constants.values[frame.readByte()]
-}
-
-func (frame *CallFrame) readShort() uint16 {
-	frame.ip += 2
-	return uint16((frame.closure.function.chunk.code[frame.ip-2] << 8) | frame.closure.function.chunk.code[frame.ip-1])
-}
-
-func (frame *CallFrame) readString() string {
-	return asString(frame.readConstant())
-}
-
-func isFalsey(value Value) bool {
-	return isNil(value) || (isBool(value) && !asBool(value))
 }
 
 func (vm *VM) run() InterpretResult {
@@ -425,9 +402,9 @@ func (vm *VM) run() InterpretResult {
 			frame = &vm.frames[vm.frameCount-1]
 			break
 		case OpInvoke:
-			classMethod := frame.readString()
+			method := frame.readString()
 			argCount := int(frame.readByte())
-			if !vm.invoke(classMethod, argCount) {
+			if !vm.invoke(method, argCount) {
 				return InterpretRuntimeError
 			}
 			frame = &vm.frames[vm.frameCount-1]
@@ -500,9 +477,7 @@ func (vm *VM) Interpret(source string) InterpretResult {
 		return InterpretCompileError
 	}
 
-	vm.push(functionVal(function))
 	closure := newClosure(function)
-	vm.pop()
 	vm.push(closureVal(closure))
 	vm.call(closure, 0)
 
@@ -536,6 +511,29 @@ func (vm *VM) defineNative(name string, function NativeFn) {
 	vm.pop()
 }
 
-func clockNative(argCount int, args []Value) Value {
+func (frame *CallFrame) readByte() uint8 {
+	code := frame.closure.function.chunk.code[frame.ip]
+	frame.ip++
+	return code
+}
+
+func (frame *CallFrame) readConstant() Value {
+	return frame.closure.function.chunk.constants.values[frame.readByte()]
+}
+
+func (frame *CallFrame) readShort() uint16 {
+	frame.ip += 2
+	return uint16((frame.closure.function.chunk.code[frame.ip-2] << 8) | frame.closure.function.chunk.code[frame.ip-1])
+}
+
+func (frame *CallFrame) readString() string {
+	return asString(frame.readConstant())
+}
+
+func clockNative(int, []Value) Value {
 	return numberVal(float64(time.Now().UnixNano() / int64(time.Second)))
+}
+
+func isFalsey(value Value) bool {
+	return isNil(value) || (isBool(value) && !asBool(value))
 }
